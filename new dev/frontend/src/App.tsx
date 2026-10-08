@@ -244,13 +244,29 @@ function fromApiCustomer(customer: ApiCustomer): Customer {
   return { id: customer.id, legacyId: customer.legacyId, name: customer.name, address1: customer.address1 ?? "", address2: customer.address2 ?? "", city: customer.city ?? "", pincode: customer.pincode ?? "", state: customer.state ?? "", country: customer.country ?? "" };
 }
 
+function getTodayIsoDate(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentDisplayDate(): string {
+  return new Date().toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).toUpperCase();
+}
+
 function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [active, setActive] = useState("Master");
   const [masterTab, setMasterTab] = useState<MasterTab>("departments");
   const [labelTab, setLabelTab] = useState<LabelTab>("print");
   const [reportTab, setReportTab] = useState<ReportTab>("batchNo");
-  const [reportDate, setReportDate] = useState(new Date().toISOString().slice(0, 10));
+  const [reportDate, setReportDate] = useState(() => getTodayIsoDate());
   const [reportDepartmentId, setReportDepartmentId] = useState("");
   const [reportItemId, setReportItemId] = useState("");
   const [reportBarcode, setReportBarcode] = useState("");
@@ -322,7 +338,7 @@ function App() {
   const [itemSearch, setItemSearch] = useState({ name: "", departmentId: "" });
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerDraft, setCustomerDraft] = useState<Customer>({ id: 0, name: "", address1: "", address2: "", city: "", pincode: "", state: "", country: "" });
-  const [labelDraft, setLabelDraft] = useState({ departmentId: "", itemId: "", manufactureDate: new Date().toISOString().slice(0, 10), quantity: "1", templateId: "" });
+  const [labelDraft, setLabelDraft] = useState(() => ({ departmentId: "", itemId: "", manufactureDate: getTodayIsoDate(), quantity: "1", templateId: "" }));
   const [labelLogos, setLabelLogos] = useState<LabelLogo[]>([]);
   const [labelRange, setLabelRange] = useState({ from: "", to: "" });
   const [logoUpload, setLogoUpload] = useState({ name: "", file: null as File | null });
@@ -333,12 +349,12 @@ function App() {
   const [productionDepartmentId, setProductionDepartmentId] = useState("");
   const [productionSearch, setProductionSearch] = useState("");
   const [isProductionMonthFilterOn, setIsProductionMonthFilterOn] = useState(false);
-  const [productionMonth, setProductionMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [productionMonth, setProductionMonth] = useState(() => getTodayIsoDate().slice(0, 7));
   const [pendingProduction, setPendingProduction] = useState<PendingProductionLabel[]>([]);
   const [productionTotal, setProductionTotal] = useState(0);
   const [stockDraft, setStockDraft] = useState({ batchNumber: "", fromBarcode: "", toBarcode: "" });
   const [dispatchTab, setDispatchTab] = useState<DispatchTab>("manage");
-  const [dispatchDraft, setDispatchDraft] = useState({ customerId: "", customerSearch: "", salesOrderNumber: "", invoiceNumber: "", dispatchDate: new Date().toISOString().slice(0, 10), file: null as File | null });
+  const [dispatchDraft, setDispatchDraft] = useState(() => ({ customerId: "", customerSearch: "", salesOrderNumber: "", invoiceNumber: "", dispatchDate: getTodayIsoDate(), file: null as File | null }));
   const [isDispatchCustomerOpen, setIsDispatchCustomerOpen] = useState(false);
   const [dispatchResult, setDispatchResult] = useState<DispatchResult | null>(null);
   const [oldDispatchSearch, setOldDispatchSearch] = useState({ salesOrderNumber: "", invoiceNumber: "", customer: "", dispatchDate: "", barcode: "" });
@@ -1492,7 +1508,7 @@ function App() {
                 <p className="eyebrow">CONTROL DESK / MASTER</p>
                 <h1>Master data</h1>
               </div>
-              <span className="date">06 OCT 2026</span>
+              <span className="date">{getCurrentDisplayDate()}</span>
             </div>
             <div className="workspace">
               <div className="workspace-tabs">
@@ -1817,7 +1833,7 @@ function App() {
           </>
         ) : active === "Customer" ? (
           <>
-            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / CUSTOMER</p><h1>Customer master</h1></div><span className="date">06 OCT 2026</span></div>
+            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / CUSTOMER</p><h1>Customer master</h1></div><span className="date">{getCurrentDisplayDate()}</span></div>
             <div className="workspace"><section className="master-panel customer-panel">
               <form className="master-form customer-form" onSubmit={saveCustomer}>
                 <div><p className="form-kicker">CUSTOMER RECORD</p><h2>{customerDraft.id ? "Edit customer" : "New customer"}</h2></div>
@@ -1838,7 +1854,7 @@ function App() {
           </>
         ) : active === "Dispatch" ? (
           <>
-            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / DISPATCH</p><h1>Manage dispatch</h1></div><span className="date">07 OCT 2026</span></div>
+            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / DISPATCH</p><h1>Manage dispatch</h1></div><span className="date">{getCurrentDisplayDate()}</span></div>
             <div className="workspace">
               <div className="workspace-tabs">
                 <button className={dispatchTab === "manage" ? "selected" : ""} onClick={() => setDispatchTab("manage")}>Manage dispatch</button>
@@ -1875,7 +1891,7 @@ function App() {
           </>
         ) : active === "Production" ? (
           <>
-            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / PRODUCTION</p><h1>Manage production</h1></div><span className="date">07 OCT 2026</span></div>
+            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / PRODUCTION</p><h1>Manage production</h1></div><span className="date">{getCurrentDisplayDate()}</span></div>
             <div className="workspace"><section className="master-panel production-panel">
               <form className="production-form" onSubmit={addLabelsToStock}>
                 <div><p className="form-kicker">PENDING LABELS</p><h2>Add completed production to stock</h2></div>
@@ -1893,7 +1909,7 @@ function App() {
           </>
         ) : active === "Label" ? (
           <>
-            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / LABEL</p><h1>Label</h1></div><span className="date">06 OCT 2026</span></div>
+            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / LABEL</p><h1>Label</h1></div><span className="date">{getCurrentDisplayDate()}</span></div>
             <div className="workspace">
               <div className="workspace-tabs">
                 <button className={labelTab === "print" ? "selected" : ""} onClick={() => setLabelTab("print")}>Print label</button>
@@ -1966,7 +1982,7 @@ function App() {
           </>
         ) : active === "Reports" ? (
           <>
-            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / REPORTS</p><h1>Reports</h1></div><span className="date">07 OCT 2026</span></div>
+            <div className="content-heading"><div><p className="eyebrow">CONTROL DESK / REPORTS</p><h1>Reports</h1></div><span className="date">{getCurrentDisplayDate()}</span></div>
             <div className="workspace reports-workspace">
               <div className="workspace-tabs report-tabs">
                 <button className={reportTab === "batchNo" ? "selected" : ""} onClick={() => setReportTab("batchNo")}>Batch No. report</button>
