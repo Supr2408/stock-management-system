@@ -71,8 +71,13 @@ public sealed class ReportCatalogService(BoxTrackDbContext db, ICurrentUserServi
     {
         var customer = await db.Customers.AsNoTracking().SingleOrDefaultAsync(value => value.Id == customerId, cancellationToken);
         if (customer is null) return null;
-        var labels = await db.BarcodeLabels.AsNoTracking().Include(label => label.Item).Include(label => label.StockReceipt).Include(label => label.DispatchRecord)
-            .Where(label => label.DispatchRecord != null && label.DispatchRecord.CustomerId == customerId).ToListAsync(cancellationToken);
+        var query = db.BarcodeLabels.AsNoTracking().Include(label => label.Item).Include(label => label.StockReceipt).Include(label => label.DispatchRecord)
+            .Where(label => label.DispatchRecord != null && label.DispatchRecord.CustomerId == customerId);
+        if (currentUser.IsProduction && currentUser.DepartmentId.HasValue)
+        {
+            query = query.Where(label => label.Item!.DepartmentId == currentUser.DepartmentId.Value);
+        }
+        var labels = await query.ToListAsync(cancellationToken);
         var rows = labels.GroupBy(label => new { label.DispatchRecord!.SalesOrderNumber, label.DispatchRecord.InvoiceNumber, label.DispatchRecord.DispatchDate, BatchNumber = label.StockReceipt?.BatchNumber ?? "-", ItemName = label.Item!.Name })
             .OrderByDescending(group => group.Key.DispatchDate).ThenBy(group => group.Key.SalesOrderNumber)
             .Select(group => new CustomerReportRow(group.Key.SalesOrderNumber, group.Key.InvoiceNumber, group.Key.DispatchDate, group.Key.BatchNumber, group.Key.ItemName, group.Count())).ToList();

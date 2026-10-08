@@ -77,13 +77,23 @@ public sealed class ProductionCatalogService(BoxTrackDbContext db, ICurrentUserS
 
     public async Task<IReadOnlyList<string>> ListBatchesAsync(CancellationToken cancellationToken)
     {
-        var fromLabels = await db.BarcodeLabels.AsNoTracking()
-            .Where(label => label.StockReceipt != null && label.StockReceipt!.BatchNumber != null)
+        var labelQuery = db.BarcodeLabels.AsNoTracking()
+            .Where(label => label.StockReceipt != null && label.StockReceipt!.BatchNumber != null);
+        var receiptQuery = db.StockReceipts.AsNoTracking()
+            .Where(receipt => receipt.BatchNumber != null);
+
+        if (currentUser.IsProduction && currentUser.DepartmentId.HasValue)
+        {
+            var deptId = currentUser.DepartmentId.Value;
+            labelQuery = labelQuery.Where(label => label.Item!.DepartmentId == deptId);
+            receiptQuery = receiptQuery.Where(receipt => receipt.Item!.DepartmentId == deptId);
+        }
+
+        var fromLabels = await labelQuery
             .Select(label => label.StockReceipt!.BatchNumber!)
             .Distinct()
             .ToListAsync(cancellationToken);
-        var fromReceipts = await db.StockReceipts.AsNoTracking()
-            .Where(receipt => receipt.BatchNumber != null)
+        var fromReceipts = await receiptQuery
             .Select(receipt => receipt.BatchNumber!)
             .Distinct()
             .ToListAsync(cancellationToken);
