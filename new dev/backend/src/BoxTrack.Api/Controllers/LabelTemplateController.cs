@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace BoxTrack.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,QC")]
 [Route("api/label-templates")]
 public sealed class LabelTemplateController(ILabelTemplateCatalog catalog) : ControllerBase
 {
@@ -31,6 +31,7 @@ public sealed class LabelTemplateController(ILabelTemplateCatalog catalog) : Con
     }
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<LabelTemplateDto>> Create(
         [FromBody] SaveLabelTemplateRequest request,
         CancellationToken cancellationToken)
@@ -47,6 +48,7 @@ public sealed class LabelTemplateController(ILabelTemplateCatalog catalog) : Con
     }
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<LabelTemplateDto>> Update(
         int id,
         [FromBody] SaveLabelTemplateRequest request,
@@ -64,6 +66,7 @@ public sealed class LabelTemplateController(ILabelTemplateCatalog catalog) : Con
     }
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         try
