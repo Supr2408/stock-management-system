@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BoxTrack.Infrastructure;
 
-public sealed class LabelCatalogService(BoxTrackDbContext db, string barcodeRoot) : ILabelCatalog
+public sealed class LabelCatalogService(BoxTrackDbContext db, string barcodeRoot, IPrintService printService) : ILabelCatalog
 {
     private static readonly HashSet<string> AllowedLogoTypes = new(StringComparer.OrdinalIgnoreCase) { "image/png", "image/jpeg", "image/svg+xml", "image/webp" };
 
@@ -74,8 +74,34 @@ public sealed class LabelCatalogService(BoxTrackDbContext db, string barcodeRoot
         }
 
         await transaction.CommitAsync(cancellationToken);
+
+        string? printedTo = null;
+        string? printStatus = null;
+        try
+        {
+            var printItems = labels.Select(l => new GeneratedBarcodePrintItem(
+                l.BarcodeValue,
+                item.Name,
+                item.Description ?? item.Department?.Name ?? string.Empty,
+                input.ManufactureDate,
+                l.SerialNumber,
+                l.LogoMode
+            )).ToList();
+
+            var printJob = await printService.PrintBarcodeLabelsAsync(printItems, userId, cancellationToken);
+            if (printJob != null)
+            {
+                printedTo = printJob.PrinterName;
+                printStatus = printJob.Status;
+            }
+        }
+        catch (Exception)
+        {
+            printStatus = "Failed";
+        }
+
         var rows = labels.Select(label => ToRow(label, item.Name, logo?.Name)).ToList();
-        return new LabelGenerationResult(rows.Count, rows.First().BarcodeValue, rows.Last().BarcodeValue, rows);
+        return new LabelGenerationResult(rows.Count, rows.First().BarcodeValue, rows.Last().BarcodeValue, rows, printedTo, printStatus);
     }
 
     public async Task<Page<GeneratedLabelRow>> ListGeneratedAsync(int page, int pageSize, CancellationToken cancellationToken)

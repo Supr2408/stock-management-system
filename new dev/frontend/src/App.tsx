@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import * as XLSX from "xlsx";
 import "./App.css";
+import { TscLabelEditor } from "./features/printing/components/TscLabelEditor";
 
 type Department = { id: number; name: string };
 type Customer = { id: number; legacyId?: number; name: string; address1: string; address2: string; city: string; pincode: string; state: string; country: string };
@@ -70,6 +71,22 @@ type InventorySummaryRow = { itemName: string; departmentName: string; customerN
 type SalesOrderSummaryRow = { salesOrderNumber: string; itemName: string; quantity: number };
 type BoxDetailRow = { itemName: string; batchNumber: string; barcodeValue: string; stockStatus: string; salesOrderNumber?: string; customerName: string };
 type ReportPrintDocument = { title: string; subtitle?: string; address?: string[]; headers: string[]; rows: string[][] };
+type AvailablePrinter = { name: string; displayName: string; status: string; isDefault: boolean };
+type PrinterConfigItem = {
+  id: number;
+  category: "RegularDocument" | "Barcode";
+  printerName: string;
+  isActive: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+  mode?: number;
+  model?: string;
+  dpi?: number;
+  activeTemplateId?: number | null;
+  activeTemplateName?: string | null;
+};
+type PrinterConfigurationsSummary = { regularDocumentPrinter: PrinterConfigItem | null; barcodePrinter: PrinterConfigItem | null };
+type PrintJobRow = { id: number; category: string; printerName: string; documentName: string; documentReference?: string; copies: number; status: string; requestedBy?: string; createdAt: string; startedAt?: string; completedAt?: string; errorMessage?: string };
 
 const menu = [
   "Master",
@@ -235,6 +252,18 @@ function App() {
   const [salesOrderSummaryRows, setSalesOrderSummaryRows] = useState<SalesOrderSummaryRow[]>([]);
   const [boxDetailRows, setBoxDetailRows] = useState<BoxDetailRow[]>([]);
   const [reportPrintDocument, setReportPrintDocument] = useState<ReportPrintDocument | null>(null);
+  const [moreTab, setMoreTab] = useState<"printing">("printing");
+  const [printingSubTab, setPrintingSubTab] = useState<"regular" | "barcode">("regular");
+  const [barcodeMode, setBarcodeMode] = useState<"laser" | "tsc">("laser");
+  const [tscSubTab, setTscSubTab] = useState<"settings" | "editor">("settings");
+  const [availablePrinters, setAvailablePrinters] = useState<AvailablePrinter[]>([]);
+  const [printerConfig, setPrinterConfig] = useState<PrinterConfigurationsSummary>({ regularDocumentPrinter: null, barcodePrinter: null });
+  const [selectedRegularPrinter, setSelectedRegularPrinter] = useState<string>("");
+  const [selectedBarcodePrinter, setSelectedBarcodePrinter] = useState<string>("");
+  const [loadingPrinters, setLoadingPrinters] = useState(false);
+  const [savingPrinter, setSavingPrinter] = useState(false);
+  const [testingPrinter, setTestingPrinter] = useState(false);
+  const [recentPrintJobs, setRecentPrintJobs] = useState<PrintJobRow[]>([]);
   const [userName, setUserName] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -420,6 +449,108 @@ function App() {
       .then((page: { items: DispatchHistoryRow[]; total: number }) => { setOldDispatches(page.items); setOldDispatchTotal(page.total); })
       .catch(() => notify("The dispatch history database could not be reached."));
   }, [active, apiToken, dispatchTab, oldDispatchSearch]);
+
+  function loadPrintersAndConfig() {
+    if (!apiToken) return;
+    setLoadingPrinters(true);
+    const headers = { Authorization: `Bearer ${apiToken}` };
+    Promise.all([
+      fetch(`${apiUrl}/api/printers/available`, { headers }).then((res) => res.ok ? res.json() : []),
+      fetch(`${apiUrl}/api/printers/configuration`, { headers }).then((res) => res.ok ? res.json() : { regularDocumentPrinter: null, barcodePrinter: null }),
+      fetch(`${apiUrl}/api/printers/jobs?limit=20`, { headers }).then((res) => res.ok ? res.json() : [])
+    ])
+      .then(([printers, config, jobs]: [AvailablePrinter[], PrinterConfigurationsSummary, PrintJobRow[]]) => {
+        setAvailablePrinters(printers);
+        setPrinterConfig(config);
+        if (config.regularDocumentPrinter?.printerName) {
+          setSelectedRegularPrinter(config.regularDocumentPrinter.printerName);
+        }
+        if (config.barcodePrinter?.printerName) {
+          setSelectedBarcodePrinter(config.barcodePrinter.printerName);
+          if (config.barcodePrinter.mode === 2) {
+            setBarcodeMode("tsc");
+          } else {
+            setBarcodeMode("laser");
+          }
+        }
+        setRecentPrintJobs(jobs);
+      })
+      .catch((err) => {
+        console.error("Failed to load printer data:", err);
+        notify("Unable to reach server printer subsystem.");
+      })
+      .finally(() => setLoadingPrinters(false));
+  }
+
+  function loadRecentPrintJobs() {
+    if (!apiToken) return;
+    fetch(`${apiUrl}/api/printers/jobs?limit=20`, { headers: { Authorization: `Bearer ${apiToken}` } })
+      .then((res) => res.ok ? res.json() : [])
+      .then((jobs: PrintJobRow[]) => setRecentPrintJobs(jobs))
+      .catch(() => {});
+  }
+
+  function savePrinterConfig(category: "regular" | "barcode") {
+    if (!apiToken) return;
+    const targetPrinter = category === "regular" ? selectedRegularPrinter : selectedBarcodePrinter;
+    if (!targetPrinter) {
+      notify("Please select a printer first.");
+      return;
+    }
+    setSavingPrinter(true);
+    const bodyPayload = category === "regular"
+      ? { printerName: targetPrinter }
+      : {
+          printerName: targetPrinter,
+          mode: barcodeMode === "tsc" ? 2 : 1,
+          model: barcodeMode === "tsc" ? "TSC TTP-247" : "Laser",
+          dpi: barcodeMode === "tsc" ? 203 : 600,
+          activeTemplateId: printerConfig.barcodePrinter?.activeTemplateId ?? null,
+        };
+
+    fetch(`${apiUrl}/api/printers/configuration/${category}`, {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(bodyPayload)
+    })
+      .then(async (res) => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.message || "Failed to update printer configuration.");
+        return body;
+      })
+      .then(() => {
+        notify(`${category === "regular" ? "Regular document" : `Barcode (${barcodeMode.toUpperCase()})`} printer updated successfully.`);
+        loadPrintersAndConfig();
+      })
+      .catch((err) => notify(err.message || "Failed to save printer."))
+      .finally(() => setSavingPrinter(false));
+  }
+
+  function runTestPrint(category: "RegularDocument" | "Barcode") {
+    if (!apiToken) return;
+    setTestingPrinter(true);
+    fetch(`${apiUrl}/api/printers/test-print`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ category })
+    })
+      .then(async (res) => {
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.message || "Test print failed.");
+        return body;
+      })
+      .then((job: PrintJobRow) => {
+        notify(`Test print #${job.id} sent successfully to ${job.printerName}.`);
+        loadPrintersAndConfig();
+      })
+      .catch((err) => notify(err.message || "Test print failed."))
+      .finally(() => setTestingPrinter(false));
+  }
+
+  useEffect(() => {
+    if (!apiToken || active !== "More") return;
+    loadPrintersAndConfig();
+  }, [active, apiToken]);
 
   async function login(event: FormEvent) {
     event.preventDefault();
@@ -852,7 +983,12 @@ function App() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) { notify(body.message ?? "Barcode generation failed."); return; }
     setLabelRange({ from: body.fromBarcode, to: body.toBarcode });
-    notify(`${body.generated} barcode label${body.generated === 1 ? "" : "s"} generated in the barcode folder.`);
+    if (body.printerName) {
+      notify(`${body.generated} barcode label${body.generated === 1 ? "" : "s"} generated & sent to Barcode Printer '${body.printerName}'.`);
+    } else {
+      notify(`${body.generated} barcode label${body.generated === 1 ? "" : "s"} generated. (No Barcode Printer configured in Admin > More > Printing).`);
+    }
+    loadRecentPrintJobs();
   }
 
   async function addLabelsToStock(event: FormEvent) {
@@ -892,15 +1028,66 @@ function App() {
     notify(`Sales order generated. ${body.dispatched} barcode label${body.dispatched === 1 ? "" : "s"} marked as dispatched.`);
   }
 
-  function printPackingList() {
+  function fallbackBrowserPrint(htmlContent: string) {
+    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=900,height=1000");
+    if (!printWindow) {
+      notify("Allow pop-ups to print the document.");
+      return;
+    }
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+  }
+
+  async function printDocumentToServer(docPayload: { title: string; subtitle?: string; address?: string[]; headers: string[]; rows: string[][] }, fallbackHtmlBuilder: () => string) {
+    if (apiToken && printerConfig.regularDocumentPrinter?.printerName) {
+      try {
+        const response = await fetch(`${apiUrl}/api/printers/print-document`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+          body: JSON.stringify(docPayload),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (response.ok) {
+          notify(`Sent to Regular Document Printer '${body.printerName}' (Job #${body.id}).`);
+          loadRecentPrintJobs();
+          return;
+        } else {
+          notify(body.message ?? "Server printing failed. Opening browser print...");
+        }
+      } catch {
+        notify("Server printing unavailable. Opening browser print...");
+      }
+    }
+    fallbackBrowserPrint(fallbackHtmlBuilder());
+  }
+
+  async function printPackingList() {
     if (!dispatchResult) return;
     const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character] ?? character));
-    const address = packingAddressLines(dispatchResult.customer).map((line) => `<span>${escapeHtml(line)}</span>`).join("");
-    const rows = dispatchResult.labels.map((label) => `<tr><td>${escapeHtml(dispatchResult.invoiceNumber)}</td><td>${escapeHtml(dispatchResult.salesOrderNumber)}</td><td>${escapeHtml(dispatchResult.dispatchDate)}</td><td>${escapeHtml(label.batchNumber)}</td><td>${escapeHtml(label.itemName)}</td><td>${escapeHtml(label.barcodeValue)}</td></tr>`).join("");
-    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=900,height=1000");
-    if (!printWindow) { notify("Allow pop-ups to generate the packing-list printout."); return; }
-    printWindow.document.write(`<!doctype html><html><head><title>Packing List ${escapeHtml(dispatchResult.salesOrderNumber)}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;color:#111;font-family:Arial,sans-serif}.sheet{width:210mm;min-height:297mm;padding:14mm 12mm}.header{display:flex;justify-content:space-between;gap:24px;min-height:43mm;font-size:11pt;line-height:1.55}.address{display:grid;align-content:start}.address strong{font-size:12pt;margin-bottom:4px}.header time{white-space:nowrap}.meta{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #202020;margin:8mm 0 5mm}.meta div{display:grid;gap:4px;padding:6px 8px;border-right:1px solid #202020;font-size:8pt}.meta div:last-child{border-right:0}.meta span{color:#555}.meta strong{font-size:9pt}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}th,td{border:1px solid #202020;padding:5px 4px;word-break:break-word;vertical-align:middle}th{background:#d0d0d0;font-size:8.5pt}th:nth-child(1){width:12%}th:nth-child(2){width:11%}th:nth-child(3){width:14%}th:nth-child(4){width:19%}th:nth-child(5){width:22%}th:nth-child(6){width:22%}</style></head><body><main class="sheet"><header class="header"><div class="address"><strong>${escapeHtml(dispatchResult.customer.name)}</strong>${address}</div><time>${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}</time></header><section class="meta"><div><span>Invoice No.</span><strong>${escapeHtml(dispatchResult.invoiceNumber)}</strong></div><div><span>SO No.</span><strong>${escapeHtml(dispatchResult.salesOrderNumber)}</strong></div><div><span>Dispatch date</span><strong>${escapeHtml(dispatchResult.dispatchDate)}</strong></div><div><span>Boxes</span><strong>${dispatchResult.dispatched}</strong></div></section><table><thead><tr><th>Invoice No.</th><th>SO No.</th><th>Dispatch Date</th><th>Batch No.</th><th>Item</th><th>Box No.</th></tr></thead><tbody>${rows}</tbody></table></main><script>window.onload=()=>window.print();<\/script></body></html>`);
-    printWindow.document.close();
+    const addressLines = packingAddressLines(dispatchResult.customer);
+    const headers = ["Invoice No.", "SO No.", "Dispatch Date", "Batch No.", "Item", "Box No."];
+    const rows = dispatchResult.labels.map((label) => [
+      dispatchResult.invoiceNumber,
+      dispatchResult.salesOrderNumber,
+      dispatchResult.dispatchDate,
+      label.batchNumber,
+      label.itemName,
+      label.barcodeValue,
+    ]);
+
+    const fallbackHtml = () => {
+      const address = addressLines.map((line) => `<span>${escapeHtml(line)}</span>`).join("");
+      const htmlRows = rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("");
+      return `<!doctype html><html><head><title>Packing List ${escapeHtml(dispatchResult.salesOrderNumber)}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;color:#111;font-family:Arial,sans-serif}.sheet{width:210mm;min-height:297mm;padding:14mm 12mm}.header{display:flex;justify-content:space-between;gap:24px;min-height:43mm;font-size:11pt;line-height:1.55}.address{display:grid;align-content:start}.address strong{font-size:12pt;margin-bottom:4px}.header time{white-space:nowrap}.meta{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid #202020;margin:8mm 0 5mm}.meta div{display:grid;gap:4px;padding:6px 8px;border-right:1px solid #202020;font-size:8pt}.meta div:last-child{border-right:0}.meta span{color:#555}.meta strong{font-size:9pt}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}th,td{border:1px solid #202020;padding:5px 4px;word-break:break-word;vertical-align:middle}th{background:#d0d0d0;font-size:8.5pt}th:nth-child(1){width:12%}th:nth-child(2){width:11%}th:nth-child(3){width:14%}th:nth-child(4){width:19%}th:nth-child(5){width:22%}th:nth-child(6){width:22%}</style></head><body><main class="sheet"><header class="header"><div class="address"><strong>${escapeHtml(dispatchResult.customer.name)}</strong>${address}</div><time>${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}</time></header><section class="meta"><div><span>Invoice No.</span><strong>${escapeHtml(dispatchResult.invoiceNumber)}</strong></div><div><span>SO No.</span><strong>${escapeHtml(dispatchResult.salesOrderNumber)}</strong></div><div><span>Dispatch date</span><strong>${escapeHtml(dispatchResult.dispatchDate)}</strong></div><div><span>Boxes</span><strong>${dispatchResult.dispatched}</strong></div></section><table><thead><tr><th>Invoice No.</th><th>SO No.</th><th>Dispatch Date</th><th>Batch No.</th><th>Item</th><th>Box No.</th></tr></thead><tbody>${htmlRows}</tbody></table></main><script>window.onload=()=>window.print();<\/script></body></html>`;
+    };
+
+    await printDocumentToServer({
+      title: `Sales Order - ${dispatchResult.salesOrderNumber}`,
+      subtitle: `Invoice: ${dispatchResult.invoiceNumber} | Dispatch Date: ${dispatchResult.dispatchDate}`,
+      address: [dispatchResult.customer.name, ...addressLines],
+      headers,
+      rows,
+    }, fallbackHtml);
   }
 
   async function downloadPackingListPdf() {
@@ -968,18 +1155,55 @@ function App() {
   function exportReport(rows: string[][], headers: string[], fileName: string, format: "csv" | "xls" | "xlsx" = "csv") { const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers, ...rows]), "Report"); XLSX.writeFile(workbook, `${fileName}.${format}`, { bookType: format }); }
 
   function openReportPrint(document: ReportPrintDocument) { if (!document.rows.length) { notify("Load report data before printing."); return; } setReportPrintDocument(document); }
-  function printReportDocument() { if (!reportPrintDocument) return; const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character] ?? character)); const head = reportPrintDocument.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join(""); const rows = reportPrintDocument.rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join(""); const address = reportPrintDocument.address?.map((line) => `<span>${escapeHtml(line)}</span>`).join("") ?? ""; const page = window.open("", "_blank", "noopener,noreferrer,width=900,height=1000"); if (!page) { notify("Allow pop-ups to print the report."); return; } page.document.write(`<!doctype html><html><head><title>${escapeHtml(reportPrintDocument.title)}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#111}.sheet{width:210mm;min-height:297mm;padding:14mm 12mm}.date{text-align:right;font-size:10pt}.title{text-align:center;font-size:17pt;text-decoration:underline;margin:9mm 0 4mm}.subtitle{text-align:center;margin:0 0 7mm;font-size:10pt}.address{display:grid;gap:4px;margin:0 0 8mm;font-size:10pt;line-height:1.35}.address strong{font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}th,td{border:1px solid #111;padding:6px 5px;vertical-align:top;word-break:break-word}th{background:#d0d0d0;font-weight:700}</style></head><body><main class="sheet"><div class="date">${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}</div><h1 class="title">${escapeHtml(reportPrintDocument.title)}</h1>${reportPrintDocument.subtitle ? `<p class="subtitle">${escapeHtml(reportPrintDocument.subtitle)}</p>` : ""}${address ? `<section class="address">${address}</section>` : ""}<table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></main><script>window.onload=()=>window.print();<\/script></body></html>`); page.document.close(); }
+  async function printReportDocument() {
+    if (!reportPrintDocument) return;
+    const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character] ?? character));
+    const fallbackHtml = () => {
+      const head = reportPrintDocument.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("");
+      const rows = reportPrintDocument.rows.map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("");
+      const address = reportPrintDocument.address?.map((line) => `<span>${escapeHtml(line)}</span>`).join("") ?? "";
+      return `<!doctype html><html><head><title>${escapeHtml(reportPrintDocument.title)}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#111}.sheet{width:210mm;min-height:297mm;padding:14mm 12mm}.date{text-align:right;font-size:10pt}.title{text-align:center;font-size:17pt;text-decoration:underline;margin:9mm 0 4mm}.subtitle{text-align:center;margin:0 0 7mm;font-size:10pt}.address{display:grid;gap:4px;margin:0 0 8mm;font-size:10pt;line-height:1.35}.address strong{font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}th,td{border:1px solid #111;padding:6px 5px;vertical-align:top;word-break:break-word}th{background:#d0d0d0;font-weight:700}</style></head><body><main class="sheet"><div class="date">${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}</div><h1 class="title">${escapeHtml(reportPrintDocument.title)}</h1>${reportPrintDocument.subtitle ? `<p class="subtitle">${escapeHtml(reportPrintDocument.subtitle)}</p>` : ""}${address ? `<section class="address">${address}</section>` : ""}<table><thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table></main><script>window.onload=()=>window.print();<\/script></body></html>`;
+    };
+
+    await printDocumentToServer({
+      title: reportPrintDocument.title,
+      subtitle: reportPrintDocument.subtitle,
+      address: reportPrintDocument.address,
+      headers: reportPrintDocument.headers,
+      rows: reportPrintDocument.rows,
+    }, fallbackHtml);
+  }
   async function downloadReportPdf() { if (!reportPrintDocument) return; const pdf = await PDFDocument.create(); const regular = await pdf.embedFont(StandardFonts.Helvetica); const bold = await pdf.embedFont(StandardFonts.HelveticaBold); const width = 595.28; const height = 841.89; const margin = 36; let page = pdf.addPage([width, height]); let y = height - margin; const drawPageHeader = () => { page.drawText(new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" }), { x: width - margin - 76, y, size: 8, font: regular }); y -= 28; page.drawText(reportPrintDocument.title, { x: margin, y, size: 15, font: bold }); y -= 19; if (reportPrintDocument.subtitle) { page.drawText(reportPrintDocument.subtitle, { x: margin, y, size: 9, font: regular }); y -= 16; } for (const line of reportPrintDocument.address ?? []) { page.drawText(line, { x: margin, y, size: 9, font: regular }); y -= 14; } y -= 8; }; drawPageHeader(); const columnWidth = (width - margin * 2) / reportPrintDocument.headers.length; const drawHeader = () => { let x = margin; reportPrintDocument.headers.forEach((header) => { page.drawRectangle({ x, y: y - 22, width: columnWidth, height: 22, color: rgb(.82, .82, .82), borderColor: rgb(0, 0, 0), borderWidth: .7 }); page.drawText(header.slice(0, 22), { x: x + 3, y: y - 13, size: 6.5, font: bold }); x += columnWidth; }); y -= 22; }; drawHeader(); reportPrintDocument.rows.forEach((row) => { if (y < margin + 28) { page = pdf.addPage([width, height]); y = height - margin; drawPageHeader(); drawHeader(); } let x = margin; row.forEach((cell) => { page.drawRectangle({ x, y: y - 20, width: columnWidth, height: 20, borderColor: rgb(0, 0, 0), borderWidth: .7 }); page.drawText(cell.slice(0, 24), { x: x + 3, y: y - 13, size: 6.5, font: regular }); x += columnWidth; }); y -= 20; }); const bytes = await pdf.save(); const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" })); link.download = `${reportPrintDocument.title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`; link.click(); URL.revokeObjectURL(link.href); }
 
-  function printPackingListSummary() {
+  async function printPackingListSummary() {
     if (!dispatchResult) return;
     const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character] ?? character));
-    const address = packingAddressLines(dispatchResult.customer).map((line) => `<span>${escapeHtml(line)}</span>`).join("");
-    const rows = packingListLines.map((line, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(line.itemName)}</td><td>${line.piecesPerBox}</td><td>${line.boxes}</td><td>${line.totalPieces}</td><td>${line.grossWeightKg.toFixed(2)}</td><td>${line.totalGrossWeightKg.toFixed(2)}</td><td></td></tr>`).join("");
-    const printWindow = window.open("", "_blank", "noopener,noreferrer,width=900,height=1000");
-    if (!printWindow) { notify("Allow pop-ups to print the packing list."); return; }
-    printWindow.document.write(`<!doctype html><html><head><title>Packing List ${escapeHtml(dispatchResult.salesOrderNumber)}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;color:#111;font-family:Arial,sans-serif}.sheet{width:210mm;min-height:297mm;padding:14mm 12mm}.title{text-align:center;text-decoration:underline;font-size:20pt;margin:0 0 20mm}.so-date{display:flex;justify-content:space-between;font-size:11pt;margin-bottom:7mm}.address{display:grid;gap:5px;font-size:10pt;line-height:1.4;margin-bottom:8mm}.address strong{text-decoration:underline;font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}th,td{border:1px solid #111;padding:6px 4px;text-align:center;vertical-align:middle;word-break:break-word}th{font-weight:700}th:nth-child(1){width:7%}th:nth-child(2){width:25%}th:nth-child(3){width:10%}th:nth-child(4){width:12%}th:nth-child(5){width:12%}th:nth-child(6){width:12%}th:nth-child(7){width:12%}th:nth-child(8){width:10%}</style></head><body><main class="sheet"><h1 class="title">Packing List</h1><div class="so-date"><strong>SO No. : ${escapeHtml(dispatchResult.salesOrderNumber)}</strong><span>${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}</span></div><section class="address"><strong>Ship To Address</strong><b>${escapeHtml(dispatchResult.customer.name)}</b>${address}</section><table><thead><tr><th>Sr. No.</th><th>Item</th><th>Pcs in Each Box</th><th>Total No. of Boxes</th><th>Total No. of Pcs</th><th>Gross Wt of One box in (kgs)</th><th>Total Gross wt. (kgs)</th><th>Remark</th></tr></thead><tbody>${rows}</tbody></table></main><script>window.onload=()=>window.print();<\/script></body></html>`);
-    printWindow.document.close();
+    const addressLines = packingAddressLines(dispatchResult.customer);
+    const headers = ["Sr. No.", "Item", "Pcs in Each Box", "Total No. of Boxes", "Total No. of Pcs", "Gross Wt of One box (kgs)", "Total Gross wt. (kgs)", "Remark"];
+    const rows = packingListLines.map((line, index) => [
+      String(index + 1),
+      line.itemName,
+      String(line.piecesPerBox),
+      String(line.boxes),
+      String(line.totalPieces),
+      line.grossWeightKg.toFixed(2),
+      line.totalGrossWeightKg.toFixed(2),
+      "",
+    ]);
+
+    const fallbackHtml = () => {
+      const address = addressLines.map((line) => `<span>${escapeHtml(line)}</span>`).join("");
+      const htmlRows = rows.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join("")}</tr>`).join("");
+      return `<!doctype html><html><head><title>Packing List ${escapeHtml(dispatchResult.salesOrderNumber)}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;color:#111;font-family:Arial,sans-serif}.sheet{width:210mm;min-height:297mm;padding:14mm 12mm}.title{text-align:center;text-decoration:underline;font-size:20pt;margin:0 0 20mm}.so-date{display:flex;justify-content:space-between;font-size:11pt;margin-bottom:7mm}.address{display:grid;gap:5px;font-size:10pt;line-height:1.4;margin-bottom:8mm}.address strong{text-decoration:underline;font-size:11pt}table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:8.5pt}th,td{border:1px solid #111;padding:6px 4px;text-align:center;vertical-align:middle;word-break:break-word}th{font-weight:700}th:nth-child(1){width:7%}th:nth-child(2){width:25%}th:nth-child(3){width:10%}th:nth-child(4){width:12%}th:nth-child(5){width:12%}th:nth-child(6){width:12%}th:nth-child(7){width:12%}th:nth-child(8){width:10%}</style></head><body><main class="sheet"><h1 class="title">Packing List</h1><div class="so-date"><strong>SO No. : ${escapeHtml(dispatchResult.salesOrderNumber)}</strong><span>${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}</span></div><section class="address"><strong>Ship To Address</strong><b>${escapeHtml(dispatchResult.customer.name)}</b>${address}</section><table><thead><tr><th>Sr. No.</th><th>Item</th><th>Pcs in Each Box</th><th>Total No. of Boxes</th><th>Total No. of Pcs</th><th>Gross Wt of One box in (kgs)</th><th>Total Gross wt. (kgs)</th><th>Remark</th></tr></thead><tbody>${htmlRows}</tbody></table></main><script>window.onload=()=>window.print();<\/script></body></html>`;
+    };
+
+    await printDocumentToServer({
+      title: `Packing List - SO ${dispatchResult.salesOrderNumber}`,
+      subtitle: `Date: ${new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" })}`,
+      address: [dispatchResult.customer.name, ...addressLines],
+      headers,
+      rows,
+    }, fallbackHtml);
   }
 
   async function downloadPackingListSummaryPdf() {
@@ -1553,6 +1777,307 @@ function App() {
                 {reportTab === "salesOrder" && <><div className="report-heading"><p className="form-kicker">SALES ORDER</p><h2>Sales order report</h2></div><div className="report-filters"><label>Sales Order No.<input value={reportSalesOrder} onChange={(event) => setReportSalesOrder(event.target.value)} placeholder="Search saved sales order" /></label><button className="primary" onClick={loadSalesOrderSummary}>Load <span>-&gt;</span></button><button className="secondary" onClick={() => openReportPrint({ title: "Sales Order Report", subtitle: `Sales Order: ${reportSalesOrder}`, headers: ["SO No.", "Item", "Qty"], rows: salesOrderSummaryRows.map((row) => [row.salesOrderNumber, row.itemName, String(row.quantity)]) })}>Print preview</button></div><div className="table-wrap"><table><thead><tr><th>SO No.</th><th>Item</th><th>Qty</th></tr></thead><tbody>{salesOrderSummaryRows.map((row, index) => <tr key={`${row.salesOrderNumber}-${row.itemName}-${index}`}><td>{row.salesOrderNumber}</td><td>{row.itemName}</td><td>{row.quantity}</td></tr>)}</tbody></table></div></>}
                 {reportTab === "boxLabel" && <><div className="report-heading"><p className="form-kicker">BOX TRACE</p><h2>Box detail summary report</h2></div><div className="report-filters"><label>Department<select value={reportDepartmentId} onChange={(event) => setReportDepartmentId(event.target.value)}><option value="">All departments</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label><label>Item<select value={reportItemId} onChange={(event) => setReportItemId(event.target.value)}><option value="">All items</option>{items.filter((item) => !reportDepartmentId || String(item.departmentId) === reportDepartmentId).map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name}</option>)}</select></label><label>Start box<input value={reportFromBarcode} onChange={(event) => setReportFromBarcode(event.target.value.replace(/\D/g, ""))} /></label><label>End box<input value={reportToBarcode} onChange={(event) => setReportToBarcode(event.target.value.replace(/\D/g, ""))} /></label><button className="primary" onClick={loadBoxDetails}>Load <span>-&gt;</span></button><button className="secondary" onClick={() => exportReport(boxDetailRows.map((row, index) => [String(index + 1), row.itemName, row.batchNumber, row.barcodeValue, row.stockStatus, row.salesOrderNumber ?? "", row.customerName]), ["Sr. No.", "Item Name", "Batch", "Box Barcode", "Stock Status", "Sales Order", "Customer"], "box-detail-report")}>Export CSV</button></div><div className="table-wrap"><table><thead><tr><th>Sr. No.</th><th>Item name</th><th>Batch</th><th>Box barcode</th><th>Stock status</th><th>Sales order</th><th>Customer</th></tr></thead><tbody>{boxDetailRows.map((row, index) => <tr key={row.barcodeValue}><td>{index + 1}</td><td>{row.itemName}</td><td>{row.batchNumber}</td><td className="code-cell">{row.barcodeValue}</td><td>{row.stockStatus}</td><td>{row.salesOrderNumber ?? "-"}</td><td>{row.customerName}</td></tr>)}</tbody></table></div></>}
               </section>
+            </div>
+          </>
+        ) : active === "More" ? (
+          <>
+            <div className="content-heading">
+              <div>
+                <p className="eyebrow">ADMINISTRATION / MORE</p>
+                <h1>System &amp; device configuration</h1>
+              </div>
+              <span className="date">SERVER PC</span>
+            </div>
+            <div className="workspace">
+              <div className="workspace-tabs">
+                <button
+                  className={moreTab === "printing" ? "selected" : ""}
+                  onClick={() => setMoreTab("printing")}
+                >
+                  Printing
+                </button>
+              </div>
+
+              {moreTab === "printing" && (
+                <div className="master-panel">
+                  <div className="table-toolbar" style={{ paddingTop: 0, paddingBottom: "20px" }}>
+                    <div>
+                      <h2>Server printer subsystem</h2>
+                      <p>
+                        Printers installed on the Admin/Server PC. Configure independent devices for documents and barcodes.
+                      </p>
+                    </div>
+                    <div className="toolbar-actions">
+                      <button
+                        className="secondary"
+                        onClick={loadPrintersAndConfig}
+                        disabled={loadingPrinters}
+                      >
+                        {loadingPrinters ? "Scanning..." : "Rescan PC printers"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="workspace-tabs" style={{ marginBottom: "24px", padding: 0 }}>
+                    <button
+                      className={printingSubTab === "regular" ? "selected" : ""}
+                      onClick={() => setPrintingSubTab("regular")}
+                    >
+                      A. Regular Document Print
+                    </button>
+                    <button
+                      className={printingSubTab === "barcode" ? "selected" : ""}
+                      onClick={() => setPrintingSubTab("barcode")}
+                    >
+                      B. Barcode Print
+                    </button>
+                  </div>
+
+                  {printingSubTab === "regular" && (
+                    <article className="printer-card">
+                      <p className="form-kicker">CATEGORY 1 — NORMAL DOCUMENTS</p>
+                      <h3>Regular Document Printing</h3>
+                      <p className="description">
+                        Dedicated printer for PDF documents, stock reports, packing sheets, and daily registers generated by BoxTrack.
+                      </p>
+
+                      <div className="printer-current-box">
+                        <div>
+                          <span style={{ fontSize: "11px", color: "#697771", display: "block", marginBottom: "4px" }}>
+                            CURRENT SELECTED PRINTER
+                          </span>
+                          <span className="printer-current-name">
+                            {printerConfig.regularDocumentPrinter?.printerName ?? "Not configured"}
+                          </span>
+                        </div>
+                        <div>
+                          {printerConfig.regularDocumentPrinter ? (
+                            <>
+                              <span className="printer-badge badge-ready">
+                                {availablePrinters.find((p) => p.name === printerConfig.regularDocumentPrinter?.printerName)?.status ?? "Ready"}
+                              </span>
+                              {availablePrinters.find((p) => p.name === printerConfig.regularDocumentPrinter?.printerName)?.isDefault && (
+                                <span className="printer-badge badge-default">OS Default</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="printer-badge badge-unconfigured">Not configured</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="master-form" style={{ gridTemplateColumns: "1fr", borderBottom: 0, paddingBottom: 0 }}>
+                        <label>
+                          Available printers on Server PC
+                          <select
+                            value={selectedRegularPrinter}
+                            onChange={(e) => setSelectedRegularPrinter(e.target.value)}
+                          >
+                            <option value="">-- Select a printer --</option>
+                            {availablePrinters.map((p) => (
+                              <option key={p.name} value={p.name}>
+                                {p.displayName} ({p.status}){p.isDefault ? " [Default]" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        <div className="printer-card-actions" style={{ marginTop: "12px" }}>
+                          <button
+                            type="button"
+                            className="primary"
+                            disabled={!selectedRegularPrinter || savingPrinter || selectedRegularPrinter === printerConfig.regularDocumentPrinter?.printerName}
+                            onClick={() => savePrinterConfig("regular")}
+                          >
+                            {savingPrinter ? "Saving..." : "Save Regular Printer"}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            disabled={!printerConfig.regularDocumentPrinter || testingPrinter}
+                            onClick={() => runTestPrint("RegularDocument")}
+                          >
+                            {testingPrinter ? "Sending print..." : "Test Print (Document)"}
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  )}
+
+                  {printingSubTab === "barcode" && (
+                    <article className="printer-card">
+                      <p className="form-kicker">CATEGORY 2 — BARCODE LABELS</p>
+                      <h3>Barcode Printing</h3>
+                      <p className="description">
+                        Dedicated barcode label printing subsystem supporting both Laser and TSC thermal printer architectures.
+                      </p>
+
+                      {/* Barcode Mode Selector: Laser vs TSC */}
+                      <div className="workspace-tabs" style={{ marginBottom: "16px" }}>
+                        <button
+                          type="button"
+                          className={barcodeMode === "laser" ? "selected" : ""}
+                          onClick={() => setBarcodeMode("laser")}
+                        >
+                          🖨️ Laser Printer Mode
+                        </button>
+                        <button
+                          type="button"
+                          className={barcodeMode === "tsc" ? "selected" : ""}
+                          onClick={() => setBarcodeMode("tsc")}
+                        >
+                          🏷️ TSC Thermal Printer (TSPL/TSPL-EZ)
+                        </button>
+                      </div>
+
+                      {barcodeMode === "tsc" && (
+                        <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+                          <button
+                            type="button"
+                            className={tscSubTab === "settings" ? "primary" : "secondary"}
+                            onClick={() => setTscSubTab("settings")}
+                            style={{ fontSize: "12px", padding: "6px 12px" }}
+                          >
+                            TSC Printer Connection
+                          </button>
+                          <button
+                            type="button"
+                            className={tscSubTab === "editor" ? "primary" : "secondary"}
+                            onClick={() => setTscSubTab("editor")}
+                            style={{ fontSize: "12px", padding: "6px 12px" }}
+                          >
+                            🎨 Barcode Label Template Editor
+                          </button>
+                        </div>
+                      )}
+
+                      {barcodeMode === "tsc" && tscSubTab === "editor" ? (
+                        <TscLabelEditor
+                          apiUrl={apiUrl}
+                          apiToken={apiToken}
+                          onNotify={notify}
+                          activeBarcodePrinter={printerConfig.barcodePrinter?.printerName ?? null}
+                          onRefreshJobs={loadRecentPrintJobs}
+                        />
+                      ) : (
+                        <>
+                          <div className="printer-current-box">
+                            <div>
+                              <span style={{ fontSize: "11px", color: "#697771", display: "block", marginBottom: "4px" }}>
+                                CURRENT SELECTED {barcodeMode === "tsc" ? "TSC (203 DPI)" : "LASER"} PRINTER
+                              </span>
+                              <span className="printer-current-name">
+                                {printerConfig.barcodePrinter?.printerName ?? "Not configured"}
+                              </span>
+                              {barcodeMode === "tsc" && (
+                                <span style={{ fontSize: "11px", color: "#008060", display: "block", marginTop: "2px" }}>
+                                  Target: {printerConfig.barcodePrinter?.model || "TSC TTP-247"} (203 DPI, 1mm = 8 dots)
+                                </span>
+                              )}
+                            </div>
+                            <div>
+                              {printerConfig.barcodePrinter ? (
+                                <>
+                                  <span className="printer-badge badge-ready">
+                                    {availablePrinters.find((p) => p.name === printerConfig.barcodePrinter?.printerName)?.status ?? "Ready"}
+                                  </span>
+                                  {availablePrinters.find((p) => p.name === printerConfig.barcodePrinter?.printerName)?.isDefault && (
+                                    <span className="printer-badge badge-default">OS Default</span>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="printer-badge badge-unconfigured">Not configured</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="master-form" style={{ gridTemplateColumns: "1fr", borderBottom: 0, paddingBottom: 0 }}>
+                            <label>
+                              Available printers on Server PC
+                              <select
+                                value={selectedBarcodePrinter}
+                                onChange={(e) => setSelectedBarcodePrinter(e.target.value)}
+                              >
+                                <option value="">-- Select a printer --</option>
+                                {availablePrinters.map((p) => (
+                                  <option key={p.name} value={p.name}>
+                                    {p.displayName} ({p.status}){p.isDefault ? " [Default]" : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+
+                            <div className="printer-card-actions" style={{ marginTop: "12px" }}>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={!selectedBarcodePrinter || savingPrinter}
+                                onClick={() => savePrinterConfig("barcode")}
+                              >
+                                {savingPrinter ? "Saving..." : `Save ${barcodeMode === "tsc" ? "TSC" : "Laser"} Printer`}
+                              </button>
+                              <button
+                                type="button"
+                                className="secondary"
+                                disabled={!printerConfig.barcodePrinter || testingPrinter}
+                                onClick={() => runTestPrint("Barcode")}
+                              >
+                                {testingPrinter ? "Sending barcode..." : `Test Barcode (${barcodeMode === "tsc" ? "TSPL RAW" : "Laser"})`}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </article>
+                  )}
+
+                  <div style={{ marginTop: "32px" }}>
+                    <div className="table-toolbar">
+                      <div>
+                        <h2>Server print jobs</h2>
+                        <p>Track recent jobs dispatched to server-connected printers.</p>
+                      </div>
+                    </div>
+                    <div className="table-wrap">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Job #</th>
+                            <th>Category</th>
+                            <th>Printer name</th>
+                            <th>Document</th>
+                            <th>Status</th>
+                            <th>Requested by</th>
+                            <th>Timestamp</th>
+                            <th>Details</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {recentPrintJobs.map((job) => (
+                            <tr key={job.id}>
+                              <td>{job.id}</td>
+                              <td className="strong-cell">{job.category}</td>
+                              <td>{job.printerName}</td>
+                              <td>{job.documentName}</td>
+                              <td>
+                                <span className={`printer-badge ${job.status === "Completed" ? "badge-ready" : job.status === "Failed" ? "badge-offline" : "badge-default"}`}>
+                                  {job.status}
+                                </span>
+                              </td>
+                              <td>{job.requestedBy ?? "Admin"}</td>
+                              <td>{new Date(job.createdAt).toLocaleTimeString()}</td>
+                              <td>{job.errorMessage ?? (job.documentReference ? "PDF saved" : "OK")}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {recentPrintJobs.length === 0 && (
+                        <p className="no-results">No print jobs executed yet. Use "Test Print" to test printer communication.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         ) : (

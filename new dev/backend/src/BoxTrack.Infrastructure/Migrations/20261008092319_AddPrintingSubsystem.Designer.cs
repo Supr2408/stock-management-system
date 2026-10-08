@@ -3,6 +3,7 @@ using System;
 using BoxTrack.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace BoxTrack.Infrastructure.Migrations
 {
     [DbContext(typeof(BoxTrackDbContext))]
-    partial class BoxTrackDbContextModelSnapshot : ModelSnapshot
+    [Migration("20261008092319_AddPrintingSubsystem")]
+    partial class AddPrintingSubsystem
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -421,149 +424,6 @@ namespace BoxTrack.Infrastructure.Migrations
                     b.ToTable("label_logo", (string)null);
                 });
 
-            modelBuilder.Entity("BoxTrack.Domain.LabelTemplate", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("CreatedBy")
-                        .HasColumnType("text")
-                        .HasColumnName("created_by");
-
-                    b.Property<double>("GapMm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("gap_mm");
-
-                    b.Property<double>("HeightMm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("height_mm");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_active");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("boolean")
-                        .HasColumnName("is_default");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("name");
-
-                    b.Property<int>("Orientation")
-                        .HasColumnType("integer")
-                        .HasColumnName("orientation");
-
-                    b.Property<int>("PrinterType")
-                        .HasColumnType("integer")
-                        .HasColumnName("printer_type");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<double>("WidthMm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("width_mm");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("Name");
-
-                    b.ToTable("label_template", (string)null);
-                });
-
-            modelBuilder.Entity("BoxTrack.Domain.LabelTemplateElement", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<string>("BarcodeType")
-                        .HasColumnType("text")
-                        .HasColumnName("barcode_type");
-
-                    b.Property<int>("BorderThicknessDots")
-                        .HasColumnType("integer")
-                        .HasColumnName("border_thickness_dots");
-
-                    b.Property<string>("Content")
-                        .HasColumnType("text")
-                        .HasColumnName("content");
-
-                    b.Property<int>("ElementType")
-                        .HasColumnType("integer")
-                        .HasColumnName("element_type");
-
-                    b.Property<int>("FitMode")
-                        .HasColumnType("integer")
-                        .HasColumnName("fit_mode");
-
-                    b.Property<string>("FontName")
-                        .HasColumnType("text")
-                        .HasColumnName("font_name");
-
-                    b.Property<int>("FontSize")
-                        .HasColumnType("integer")
-                        .HasColumnName("font_size");
-
-                    b.Property<double>("HeightMm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("height_mm");
-
-                    b.Property<bool>("HumanReadable")
-                        .HasColumnType("boolean")
-                        .HasColumnName("human_readable");
-
-                    b.Property<int?>("LogoId")
-                        .HasColumnType("integer")
-                        .HasColumnName("logo_id");
-
-                    b.Property<int>("Rotation")
-                        .HasColumnType("integer")
-                        .HasColumnName("rotation");
-
-                    b.Property<int>("TemplateId")
-                        .HasColumnType("integer")
-                        .HasColumnName("template_id");
-
-                    b.Property<double>("WidthMm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("width_mm");
-
-                    b.Property<double>("Xmm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("xmm");
-
-                    b.Property<double>("Ymm")
-                        .HasColumnType("double precision")
-                        .HasColumnName("ymm");
-
-                    b.Property<int>("ZIndex")
-                        .HasColumnType("integer")
-                        .HasColumnName("z_index");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("LogoId");
-
-                    b.HasIndex("TemplateId");
-
-                    b.ToTable("label_template_element", (string)null);
-                });
-
             modelBuilder.Entity("BoxTrack.Domain.PrintJob", b =>
                 {
                     b.Property<long>("Id")
@@ -639,10 +499,6 @@ namespace BoxTrack.Infrastructure.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("ActiveTemplateId")
-                        .HasColumnType("integer")
-                        .HasColumnName("active_template_id");
-
                     b.Property<int>("Category")
                         .HasColumnType("integer")
                         .HasColumnName("category");
@@ -655,22 +511,9 @@ namespace BoxTrack.Infrastructure.Migrations
                         .HasColumnType("text")
                         .HasColumnName("created_by");
 
-                    b.Property<int>("Dpi")
-                        .HasColumnType("integer")
-                        .HasColumnName("dpi");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
-
-                    b.Property<int>("Mode")
-                        .HasColumnType("integer")
-                        .HasColumnName("mode");
-
-                    b.Property<string>("Model")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("model");
 
                     b.Property<string>("PrinterName")
                         .IsRequired()
@@ -682,8 +525,6 @@ namespace BoxTrack.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ActiveTemplateId");
 
                     b.HasIndex("Category");
 
@@ -793,34 +634,6 @@ namespace BoxTrack.Infrastructure.Migrations
                     b.Navigation("Department");
                 });
 
-            modelBuilder.Entity("BoxTrack.Domain.LabelTemplateElement", b =>
-                {
-                    b.HasOne("BoxTrack.Domain.LabelLogo", "Logo")
-                        .WithMany()
-                        .HasForeignKey("LogoId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.HasOne("BoxTrack.Domain.LabelTemplate", "Template")
-                        .WithMany("Elements")
-                        .HasForeignKey("TemplateId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Logo");
-
-                    b.Navigation("Template");
-                });
-
-            modelBuilder.Entity("BoxTrack.Domain.PrinterConfiguration", b =>
-                {
-                    b.HasOne("BoxTrack.Domain.LabelTemplate", "ActiveTemplate")
-                        .WithMany()
-                        .HasForeignKey("ActiveTemplateId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
-                    b.Navigation("ActiveTemplate");
-                });
-
             modelBuilder.Entity("BoxTrack.Domain.StockReceipt", b =>
                 {
                     b.HasOne("BoxTrack.Domain.Item", "Item")
@@ -857,11 +670,6 @@ namespace BoxTrack.Infrastructure.Migrations
             modelBuilder.Entity("BoxTrack.Domain.LabelLogo", b =>
                 {
                     b.Navigation("BarcodeLabels");
-                });
-
-            modelBuilder.Entity("BoxTrack.Domain.LabelTemplate", b =>
-                {
-                    b.Navigation("Elements");
                 });
 
             modelBuilder.Entity("BoxTrack.Domain.StockReceipt", b =>

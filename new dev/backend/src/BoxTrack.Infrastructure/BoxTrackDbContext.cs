@@ -13,6 +13,10 @@ public sealed class BoxTrackDbContext(DbContextOptions<BoxTrackDbContext> option
     public DbSet<StockReceipt> StockReceipts => Set<StockReceipt>();
     public DbSet<DispatchRecord> DispatchRecords => Set<DispatchRecord>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<PrinterConfiguration> PrinterConfigurations => Set<PrinterConfiguration>();
+    public DbSet<PrintJob> PrintJobs => Set<PrintJob>();
+    public DbSet<LabelTemplate> LabelTemplates => Set<LabelTemplate>();
+    public DbSet<LabelTemplateElement> LabelTemplateElements => Set<LabelTemplateElement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +44,13 @@ public sealed class BoxTrackDbContext(DbContextOptions<BoxTrackDbContext> option
         modelBuilder.Entity<DispatchRecord>().HasIndex(x => x.InvoiceNumber);
         modelBuilder.Entity<DispatchRecord>().HasOne(x => x.Customer).WithMany(x => x.Dispatches).HasForeignKey(x => x.CustomerId).OnDelete(DeleteBehavior.Restrict);
         modelBuilder.Entity<AuditLog>().ToTable("audit_log");
+        modelBuilder.Entity<PrinterConfiguration>().ToTable("printer_configuration").HasIndex(x => x.Category);
+        modelBuilder.Entity<PrinterConfiguration>().HasOne(x => x.ActiveTemplate).WithMany().HasForeignKey(x => x.ActiveTemplateId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<PrintJob>().ToTable("print_job").HasIndex(x => x.CreatedAt);
+        modelBuilder.Entity<LabelTemplate>().ToTable("label_template").HasIndex(x => x.Name);
+        modelBuilder.Entity<LabelTemplate>().HasMany(x => x.Elements).WithOne(x => x.Template).HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Cascade);
+        modelBuilder.Entity<LabelTemplateElement>().ToTable("label_template_element");
+        modelBuilder.Entity<LabelTemplateElement>().HasOne(x => x.Logo).WithMany().HasForeignKey(x => x.LogoId).OnDelete(DeleteBehavior.SetNull);
     }
 
     private static string ToSnakeCase(string value) => string.Concat(value.Select((character, index) => index > 0 && char.IsUpper(character) ? "_" + char.ToLowerInvariant(character) : character.ToString().ToLowerInvariant()));
