@@ -239,7 +239,12 @@ public sealed class LaserA4LabelCompositor(
         var fileName = el.Logo?.FileName ?? el.Content;
         if (string.IsNullOrWhiteSpace(fileName)) return;
 
-        var fullPath = Path.Combine(barcodeRoot, "logos", fileName);
+        var cleanFileName = Path.GetFileName(fileName);
+        var fullPath = Path.Combine(barcodeRoot, "logos", cleanFileName);
+        if (!File.Exists(fullPath))
+        {
+            fullPath = Path.Combine(barcodeRoot, fileName.TrimStart('/', '\\'));
+        }
         if (!File.Exists(fullPath)) return;
 
         try

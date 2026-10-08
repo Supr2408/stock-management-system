@@ -73,7 +73,12 @@ public sealed class TscTsplCommandGenerator(
 
                         if (!string.IsNullOrWhiteSpace(logoFileName))
                         {
-                            var logoPath = Path.Combine(barcodeRoot, "logos", logoFileName);
+                            var cleanLogoName = Path.GetFileName(logoFileName);
+                            var logoPath = Path.Combine(barcodeRoot, "logos", cleanLogoName);
+                            if (!File.Exists(logoPath))
+                            {
+                                logoPath = Path.Combine(barcodeRoot, logoFileName.TrimStart('/', '\\'));
+                            }
                             if (File.Exists(logoPath))
                             {
                                 try

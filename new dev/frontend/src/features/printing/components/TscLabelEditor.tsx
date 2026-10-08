@@ -169,6 +169,24 @@ export const TscLabelEditor: React.FC<Props> = ({
       onNotify("Template name is required.");
       return;
     }
+
+    // Boundary check elements
+    for (let i = 0; i < draft.elements.length; i++) {
+      const el = draft.elements[i];
+      if (el.xmm < 0 || el.ymm < 0) {
+        onNotify(`Element #${i + 1} position cannot be negative.`);
+        return;
+      }
+      if (el.xmm + el.widthMm > draft.widthMm + 1.0) {
+        onNotify(`Element #${i + 1} extends beyond label width (${(el.xmm + el.widthMm).toFixed(1)}mm > ${draft.widthMm}mm).`);
+        return;
+      }
+      if (el.ymm + el.heightMm > draft.heightMm + 1.0) {
+        onNotify(`Element #${i + 1} extends beyond label height (${(el.ymm + el.heightMm).toFixed(1)}mm > ${draft.heightMm}mm).`);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const isUpdate = draft.id > 0;
@@ -206,8 +224,15 @@ export const TscLabelEditor: React.FC<Props> = ({
         }),
       });
 
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.message || "Failed to save template.");
+      const text = await res.text();
+      let body: any = {};
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = { message: text };
+      }
+
+      if (!res.ok) throw new Error(body.message || `Failed to save template (${res.status}).`);
 
       onNotify(`Template '${body.name}' saved successfully.`);
       loadTemplates();
@@ -418,6 +443,7 @@ export const TscLabelEditor: React.FC<Props> = ({
             onSelectElement={setSelectedElementIndex}
             onUpdateElement={handleUpdateElement}
             apiUrl={apiUrl}
+            availableLogos={availableLogos}
           />
         </div>
 
@@ -481,7 +507,17 @@ export const TscLabelEditor: React.FC<Props> = ({
               {selectedEl.elementType === 1 && (
                 <>
                   <label style={{ fontSize: "11px" }}>
-                    Select Uploaded Logo
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "3px" }}>
+                      <span>Select Uploaded Logo ({availableLogos.length} available)</span>
+                      <button
+                        type="button"
+                        onClick={loadLogos}
+                        style={{ fontSize: "10px", padding: "1px 6px", border: "1px solid #ccc", background: "#f0f0f0", borderRadius: "3px", cursor: "pointer" }}
+                        title="Reload logos from server"
+                      >
+                        ↻ Refresh
+                      </button>
+                    </div>
                     <select
                       value={selectedEl.logoId ?? ""}
                       onChange={(e) => {

@@ -100,6 +100,13 @@ public sealed class LabelTemplateCatalogService(
         // Add elements
         foreach (var el in request.Elements)
         {
+            var content = el.Content;
+            if (string.IsNullOrWhiteSpace(content) && el.LogoId.HasValue)
+            {
+                var logo = await db.LabelLogos.FindAsync(new object[] { el.LogoId.Value }, cancellationToken);
+                if (logo != null) content = logo.FileName;
+            }
+
             entity.Elements.Add(new LabelTemplateElement
             {
                 ElementType = (TemplateElementType)el.ElementType,
@@ -109,7 +116,7 @@ public sealed class LabelTemplateCatalogService(
                 HeightMm = el.HeightMm,
                 Rotation = el.Rotation,
                 ZIndex = el.ZIndex,
-                Content = el.Content,
+                Content = content,
                 FontName = el.FontName,
                 FontSize = el.FontSize,
                 BarcodeType = el.BarcodeType,
@@ -267,7 +274,7 @@ public sealed class LabelTemplateCatalogService(
             e.HeightMm,
             e.Rotation,
             e.ZIndex,
-            e.Content,
+            e.Content ?? e.Logo?.FileName,
             e.FontName,
             e.FontSize,
             e.BarcodeType,

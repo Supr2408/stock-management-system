@@ -7,6 +7,7 @@ interface Props {
   onSelectElement: (index: number | null) => void;
   onUpdateElement: (index: number, updated: LabelTemplateElement) => void;
   apiUrl: string;
+  availableLogos?: { id: number; name: string; fileName: string; relativePath?: string }[];
 }
 
 export const LabelCanvas: React.FC<Props> = ({
@@ -15,8 +16,9 @@ export const LabelCanvas: React.FC<Props> = ({
   onSelectElement,
   onUpdateElement,
   apiUrl,
+  availableLogos = [],
 }) => {
-  // Scaling: calculate scale to fit a preview container of max 520px width
+  // Scaling: calculate scale to fit a preview container of max 480px width
   const maxCanvasWidthPx = 480;
   const scale = maxCanvasWidthPx / Math.max(1, template.widthMm);
   const canvasWidthPx = template.widthMm * scale;
@@ -28,7 +30,34 @@ export const LabelCanvas: React.FC<Props> = ({
     startY: number;
     origXmm: number;
     origYmm: number;
+    hasMoved: boolean;
   } | null>(null);
+
+  const [brokenImages, setBrokenImages] = useState<Record<number, boolean>>({});
+
+  const resolveLogoSrc = (el: LabelTemplateElement): string | null => {
+    let fileOrPath = el.content;
+    if (!fileOrPath && el.logoId && availableLogos.length > 0) {
+      const match = availableLogos.find((l) => l.id === el.logoId);
+      if (match) fileOrPath = match.fileName || match.relativePath;
+    }
+    if (!fileOrPath) return null;
+
+    if (fileOrPath.startsWith("http://") || fileOrPath.startsWith("https://") || fileOrPath.startsWith("data:")) {
+      return fileOrPath;
+    }
+
+    const clean = fileOrPath.replace(/^\/+/, "");
+    const base = (apiUrl || "").replace(/\/+$/, "");
+
+    if (clean.startsWith("barcode/logos/")) {
+      return `${base}/${clean}`;
+    }
+    if (clean.startsWith("logos/")) {
+      return `${base}/barcode/${clean}`;
+    }
+    return `${base}/barcode/logos/${clean}`;
+  };
 
   const handleMouseDown = (e: React.MouseEvent, index: number) => {
     e.stopPropagation();
@@ -40,6 +69,7 @@ export const LabelCanvas: React.FC<Props> = ({
       startY: e.clientY,
       origXmm: el.xmm,
       origYmm: el.ymm,
+      hasMoved: false,
     });
   };
 
@@ -52,6 +82,16 @@ export const LabelCanvas: React.FC<Props> = ({
     if (!dragState) return;
     const dxPx = e.clientX - dragState.startX;
     const dyPx = e.clientY - dragState.startY;
+
+    // Small jitter threshold: do not move until at least 4 pixels dragged
+    if (!dragState.hasMoved && Math.hypot(dxPx, dyPx) < 4) {
+      return;
+    }
+
+    if (!dragState.hasMoved) {
+      dragState.hasMoved = true;
+    }
+
     const dxMm = dxPx / scale;
     const dyMm = dyPx / scale;
 
@@ -69,8 +109,8 @@ export const LabelCanvas: React.FC<Props> = ({
   };
 
   const handleCanvasBackgroundClick = (e: React.MouseEvent) => {
-    // Only deselect if clicked directly on background
-    if (e.target === e.currentTarget) {
+    // Only deselect if clicked directly on background and not dragging
+    if (e.target === e.currentTarget && !dragState?.hasMoved) {
       onSelectElement(null);
     }
   };
@@ -90,7 +130,6 @@ export const LabelCanvas: React.FC<Props> = ({
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
-      onClick={handleCanvasBackgroundClick}
     >
       <div style={{ marginBottom: "8px", fontSize: "12px", color: "#666", fontWeight: 600 }}>
         Physical Aspect: {template.widthMm}mm × {template.heightMm}mm (1mm = 8 dots @ 203 DPI)
@@ -117,6 +156,7 @@ export const LabelCanvas: React.FC<Props> = ({
           const height = el.heightMm * scale;
 
           const exceedsBounds = el.xmm + el.widthMm > template.widthMm + 0.1 || el.ymm + el.heightMm > template.heightMm + 0.1;
+          const logoSrc = el.elementType === 1 ? resolveLogoSrc(el) : null;
 
           return (
             <div
@@ -133,21 +173,23 @@ export const LabelCanvas: React.FC<Props> = ({
                 boxSizing: "border-box",
                 cursor: "move",
                 zIndex: el.zIndex || idx + 1,
-                background: el.elementType === 4 ? "transparent" : "rgba(255,255,255,0.85)",
+                background: el.elementType === 4 ? "transparent" : "rgba(255,255,255,0.92)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 overflow: "hidden",
                 transform: el.rotation ? `rotate(${el.rotation}deg)` : undefined,
+                boxShadow: isSelected ? "0 0 8px rgba(32, 96, 255, 0.4)" : "none",
               }}
               title={`${el.elementType === 1 ? "Logo" : el.elementType === 2 ? "Barcode" : el.elementType === 3 ? "Text" : "Box"}: ${el.widthMm}x${el.heightMm}mm at (${el.xmm},${el.ymm})`}
             >
               {el.elementType === 1 && (
                 <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  {el.content ? (
+                  {logoSrc && !brokenImages[idx] ? (
                     <img
-                      src={`${apiUrl}/barcode/logos/${el.content}`}
+                      src={logoSrc}
                       alt={el.logoName ?? "Logo"}
+                      onError={() => setBrokenImages((prev) => ({ ...prev, [idx]: true }))}
                       style={{
                         width: "100%",
                         height: "100%",
@@ -156,7 +198,9 @@ export const LabelCanvas: React.FC<Props> = ({
                       }}
                     />
                   ) : (
-                    <div style={{ fontSize: "11px", fontWeight: "bold", color: "#888" }}>[LOGO]</div>
+                    <div style={{ fontSize: "11px", fontWeight: "bold", color: "#666", textAlign: "center", padding: "2px" }}>
+                      [{el.logoName || "LOGO"}]
+                    </div>
                   )}
                 </div>
               )}
