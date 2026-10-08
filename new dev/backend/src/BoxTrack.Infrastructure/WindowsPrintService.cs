@@ -167,7 +167,33 @@ public sealed class WindowsPrintService(
             job.Status = PrintJobStatus.Printing;
             await db.SaveChangesAsync(cancellationToken);
 
-            if (config.Mode == BarcodePrinterMode.Tsc && config.ActiveTemplate != null)
+            var template = config.ActiveTemplate;
+            if (template == null)
+            {
+                template = await db.LabelTemplates
+                    .Include(t => t.Elements)
+                    .ThenInclude(e => e.Logo)
+                    .Where(t => t.IsActive)
+                    .OrderByDescending(t => t.IsDefault)
+                    .ThenByDescending(t => t.Id)
+                    .FirstOrDefaultAsync(cancellationToken);
+            }
+
+            template ??= new LabelTemplate
+            {
+                Name = "Default Laser Barcode Label",
+                WidthMm = 100.0,
+                HeightMm = 50.0,
+                Elements =
+                [
+                    new() { ElementType = TemplateElementType.Logo, Xmm = 5, Ymm = 3, WidthMm = 90, HeightMm = 12, FitMode = LogoFitMode.Contain },
+                    new() { ElementType = TemplateElementType.Text, Xmm = 5, Ymm = 16, WidthMm = 90, HeightMm = 6, FontSize = 12, Content = "{ItemName}" },
+                    new() { ElementType = TemplateElementType.Barcode, Xmm = 5, Ymm = 23, WidthMm = 90, HeightMm = 18, BarcodeType = "128", HumanReadable = true, Content = "{Barcode}" },
+                    new() { ElementType = TemplateElementType.Text, Xmm = 5, Ymm = 43, WidthMm = 90, HeightMm = 5, FontSize = 8, Content = "MFG: {MfgDate}  Sr: {SerialNo}" }
+                ]
+            };
+
+            if (config.Mode == BarcodePrinterMode.Tsc)
             {
                 // Generate TSPL labels for each label item and send RAW
                 foreach (var lbl in labels)
@@ -179,17 +205,18 @@ public sealed class WindowsPrintService(
                         ["Description"] = lbl.Description,
                         ["MfgDate"] = lbl.ManufactureDate.ToString("dd/MM/yyyy"),
                         ["SerialNo"] = lbl.SerialNumber.ToString("000000"),
-                        ["LogoMode"] = lbl.LogoMode
+                        ["LogoMode"] = lbl.LogoMode,
+                        ["LogoFileName"] = lbl.LogoFileName ?? string.Empty
                     };
 
-                    var tscResult = await tscCommandGenerator.GenerateLabelAsync(config.ActiveTemplate, values, 1, cancellationToken);
+                    var tscResult = await tscCommandGenerator.GenerateLabelAsync(template, values, 1, cancellationToken);
                     await printerTransport.SendRawAsync(config.PrinterName, tscResult.Payload, job.DocumentName, cancellationToken);
                 }
             }
             else
             {
                 // Laser / standard Windows vector document print
-                ExecuteWindowsBarcodeLabelsPrint(labels, config.PrinterName, job, config);
+                ExecuteWindowsBarcodeLabelsPrint(labels, config.PrinterName, job, config, template);
             }
 
             job.Status = PrintJobStatus.Completed;
@@ -370,7 +397,8 @@ public sealed class WindowsPrintService(
         IReadOnlyList<GeneratedBarcodePrintItem> labels,
         string printerName,
         PrintJob job,
-        PrinterConfiguration config)
+        PrinterConfiguration config,
+        LabelTemplate template)
     {
         using var printDoc = new PrintDocument();
         printDoc.PrinterSettings.PrinterName = printerName;
@@ -400,22 +428,9 @@ public sealed class WindowsPrintService(
             ["Description"] = lbl.Description,
             ["MfgDate"] = lbl.ManufactureDate.ToString("dd/MM/yyyy"),
             ["SerialNo"] = lbl.SerialNumber.ToString("000000"),
-            ["LogoMode"] = lbl.LogoMode
+            ["LogoMode"] = lbl.LogoMode,
+            ["LogoFileName"] = lbl.LogoFileName ?? string.Empty
         }).ToList();
-
-        // Use active template if configured, otherwise create a sensible default 50x30 or 100x50 template
-        var template = config.ActiveTemplate ?? new LabelTemplate
-        {
-            Name = "Default Laser Barcode Label",
-            WidthMm = 50.0,
-            HeightMm = 30.0,
-            Elements =
-            [
-                new() { ElementType = TemplateElementType.Text, Xmm = 2, Ymm = 2, WidthMm = 46, HeightMm = 5, FontSize = 10, Content = "{ItemName}" },
-                new() { ElementType = TemplateElementType.Barcode, Xmm = 2, Ymm = 8, WidthMm = 46, HeightMm = 14, BarcodeType = "128", HumanReadable = true, Content = "{Barcode}" },
-                new() { ElementType = TemplateElementType.Text, Xmm = 2, Ymm = 23, WidthMm = 46, HeightMm = 5, FontSize = 8, Content = "MFG: {MfgDate} Sr: {SerialNo}" }
-            ]
-        };
 
         var layout = laserCompositor.CalculateLayout(template, config);
         int labelsPerPage = Math.Max(1, layout.LabelsPerPage);

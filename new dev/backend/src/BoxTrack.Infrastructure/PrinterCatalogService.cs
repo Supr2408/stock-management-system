@@ -27,6 +27,20 @@ public sealed class PrinterCatalogService(
         var regular = configs.FirstOrDefault(c => c.Category == PrinterCategory.RegularDocument);
         var barcode = configs.FirstOrDefault(c => c.Category == PrinterCategory.Barcode);
 
+        if (barcode != null && barcode.ActiveTemplate == null)
+        {
+            var defaultTpl = await db.LabelTemplates
+                .AsNoTracking()
+                .Where(t => t.IsActive && t.IsDefault)
+                .OrderByDescending(t => t.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (defaultTpl != null)
+            {
+                barcode.ActiveTemplate = defaultTpl;
+                barcode.ActiveTemplateId = defaultTpl.Id;
+            }
+        }
+
         return new PrinterConfigurationsSummaryDto(
             RegularDocumentPrinter: regular == null ? null : ToDto(regular),
             BarcodePrinter: barcode == null ? null : ToDto(barcode)
@@ -152,13 +166,23 @@ public sealed class PrinterCatalogService(
 
         var mode = request.Mode == 2 ? BarcodePrinterMode.Tsc : BarcodePrinterMode.Laser;
 
+        int? activeTemplateId = request.ActiveTemplateId;
+        if (!activeTemplateId.HasValue)
+        {
+            var defaultTpl = await db.LabelTemplates
+                .Where(t => t.IsActive && t.IsDefault)
+                .OrderByDescending(t => t.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+            if (defaultTpl != null) activeTemplateId = defaultTpl.Id;
+        }
+
         if (existing != null)
         {
             existing.PrinterName = matching.Name;
             existing.Mode = mode;
             existing.Model = string.IsNullOrWhiteSpace(request.Model) ? "TSC TTP-247" : request.Model.Trim();
             existing.Dpi = request.Dpi > 0 ? request.Dpi : 203;
-            existing.ActiveTemplateId = request.ActiveTemplateId;
+            existing.ActiveTemplateId = activeTemplateId;
             existing.PaperSize = string.IsNullOrWhiteSpace(request.PaperSize) ? "A4" : request.PaperSize.Trim();
             existing.PaperWidthMm = request.PaperWidthMm > 0 ? request.PaperWidthMm : 210.0;
             existing.PaperHeightMm = request.PaperHeightMm > 0 ? request.PaperHeightMm : 297.0;
@@ -187,7 +211,7 @@ public sealed class PrinterCatalogService(
                 Mode = mode,
                 Model = string.IsNullOrWhiteSpace(request.Model) ? "TSC TTP-247" : request.Model.Trim(),
                 Dpi = request.Dpi > 0 ? request.Dpi : 203,
-                ActiveTemplateId = request.ActiveTemplateId,
+                ActiveTemplateId = activeTemplateId,
                 PaperSize = string.IsNullOrWhiteSpace(request.PaperSize) ? "A4" : request.PaperSize.Trim(),
                 PaperWidthMm = request.PaperWidthMm > 0 ? request.PaperWidthMm : 210.0,
                 PaperHeightMm = request.PaperHeightMm > 0 ? request.PaperHeightMm : 297.0,

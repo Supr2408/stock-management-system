@@ -5,7 +5,7 @@ namespace BoxTrack.Infrastructure;
 
 internal static class BarcodeSvgRenderer
 {
-    private static readonly string[] Code128Patterns =
+    internal static readonly string[] Code128Patterns =
     [
         "212222","222122","222221","121223","121322","131222","122213","122312","132212","221213",
         "221312","231212","112232","122132","122231","113222","123122","123221","223211","221132",
@@ -64,7 +64,7 @@ internal static class BarcodeSvgRenderer
         return builder.ToString();
     }
 
-    private static IReadOnlyList<int> EncodeCode128B(string value)
+    internal static IReadOnlyList<int> EncodeCode128B(string value)
     {
         const int startB = 104;
         const int stop = 106;

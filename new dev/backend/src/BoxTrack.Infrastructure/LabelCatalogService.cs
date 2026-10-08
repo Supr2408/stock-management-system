@@ -85,7 +85,8 @@ public sealed class LabelCatalogService(BoxTrackDbContext db, string barcodeRoot
                 item.Description ?? item.Department?.Name ?? string.Empty,
                 input.ManufactureDate,
                 l.SerialNumber,
-                l.LogoMode
+                l.LogoMode,
+                logo?.FileName
             )).ToList();
 
             var printJob = await printService.PrintBarcodeLabelsAsync(printItems, userId, cancellationToken);

@@ -58,7 +58,8 @@ public sealed record GeneratedBarcodePrintItem(
     string Description,
     DateOnly ManufactureDate,
     int SerialNumber,
-    string LogoMode
+    string LogoMode,
+    string? LogoFileName = null
 );
 
 public sealed record PrintReportDocumentRequest(
