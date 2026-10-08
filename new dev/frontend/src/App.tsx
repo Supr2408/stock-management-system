@@ -4,6 +4,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import * as XLSX from "xlsx";
 import "./App.css";
 import { TscLabelEditor } from "./features/printing/components/TscLabelEditor";
+import type { LabelTemplate } from "./features/printing/types";
 
 type Department = { id: number; name: string };
 type Customer = { id: number; legacyId?: number; name: string; address1: string; address2: string; city: string; pincode: string; state: string; country: string };
@@ -303,6 +304,8 @@ function App() {
   const [laserMarginBottomMm, setLaserMarginBottomMm] = useState(10);
   const [laserGapXMm, setLaserGapXMm] = useState(2);
   const [laserGapYMm, setLaserGapYMm] = useState(2);
+  const [labelTemplates, setLabelTemplates] = useState<LabelTemplate[]>([]);
+  const [selectedBarcodeTemplateId, setSelectedBarcodeTemplateId] = useState<number | null>(null);
   const [departments, setDepartments] = useState(initialDepartments);
   const [items, setItems] = useState(initialItems);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -319,7 +322,7 @@ function App() {
   const [itemSearch, setItemSearch] = useState({ name: "", departmentId: "" });
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerDraft, setCustomerDraft] = useState<Customer>({ id: 0, name: "", address1: "", address2: "", city: "", pincode: "", state: "", country: "" });
-  const [labelDraft, setLabelDraft] = useState({ departmentId: "", itemId: "", manufactureDate: new Date().toISOString().slice(0, 10), quantity: "1", logoMode: "Nagreeka", labelLogoId: "" });
+  const [labelDraft, setLabelDraft] = useState({ departmentId: "", itemId: "", manufactureDate: new Date().toISOString().slice(0, 10), quantity: "1", logoMode: "Nagreeka", labelLogoId: "", templateId: "" });
   const [labelLogos, setLabelLogos] = useState<LabelLogo[]>([]);
   const [labelRange, setLabelRange] = useState({ from: "", to: "" });
   const [logoUpload, setLogoUpload] = useState({ name: "", file: null as File | null });
@@ -377,23 +380,39 @@ function App() {
     return menu;
   }, [currentUserRole]);
 
+  const activeLaserTemplate = useMemo(() => {
+    if (selectedBarcodeTemplateId) {
+      const found = labelTemplates.find((t) => t.id === selectedBarcodeTemplateId);
+      if (found) return found;
+    }
+    if (printerConfig.barcodePrinter?.activeTemplateId) {
+      const found = labelTemplates.find((t) => t.id === printerConfig.barcodePrinter.activeTemplateId);
+      if (found) return found;
+    }
+    return labelTemplates.find((t) => t.isDefault) ?? labelTemplates[0] ?? null;
+  }, [selectedBarcodeTemplateId, printerConfig.barcodePrinter, labelTemplates]);
+
   const laserCalculations = useMemo(() => {
     const usableW = Math.max(0, laserPaperWidthMm - laserMarginLeftMm - laserMarginRightMm);
     const usableH = Math.max(0, laserPaperHeightMm - laserMarginTopMm - laserMarginBottomMm);
-    const labelW = 50;
-    const labelH = 30;
-    const cols = Math.max(0, Math.floor((usableW + laserGapXMm) / (labelW + laserGapXMm)));
+    const labelW = activeLaserTemplate ? Math.max(1, activeLaserTemplate.widthMm) : 50;
+    const labelH = activeLaserTemplate ? Math.max(1, activeLaserTemplate.heightMm) : 30;
+    let cols = Math.max(0, Math.floor((usableW + laserGapXMm) / (labelW + laserGapXMm)));
+    if (cols < 2 && usableW >= labelW * 2) {
+      cols = 2;
+    }
     const rows = Math.max(0, Math.floor((usableH + laserGapYMm) / (labelH + laserGapYMm)));
     return {
-      usableW,
-      usableH,
+      usableW: Number(usableW.toFixed(1)),
+      usableH: Number(usableH.toFixed(1)),
       cols,
       rows,
       perPage: cols * rows,
       labelW,
-      labelH
+      labelH,
+      templateName: activeLaserTemplate?.name ?? "Default"
     };
-  }, [laserPaperWidthMm, laserPaperHeightMm, laserMarginLeftMm, laserMarginRightMm, laserMarginTopMm, laserMarginBottomMm, laserGapXMm, laserGapYMm]);
+  }, [laserPaperWidthMm, laserPaperHeightMm, laserMarginLeftMm, laserMarginRightMm, laserMarginTopMm, laserMarginBottomMm, laserGapXMm, laserGapYMm, activeLaserTemplate]);
 
   const departmentLabelItems = items.filter((item) => !labelDraft.departmentId || String(item.departmentId) === labelDraft.departmentId);
   const labelItems = departmentLabelItems.filter((item) => {
@@ -477,11 +496,14 @@ function App() {
   }, [active, apiToken, productionDepartmentId, productionSearch, isProductionMonthFilterOn, productionMonth]);
 
   useEffect(() => {
-    if (!apiToken || active !== "Label") return;
-    fetch(`${apiUrl}/api/labels/logos`, { headers: { Authorization: `Bearer ${apiToken}` } })
-      .then(async (response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load label logos.")))
-      .then((rows: LabelLogo[]) => setLabelLogos(rows))
-      .catch(() => notify("Label logos could not be loaded."));
+    if (!apiToken || (active !== "Label" && active !== "More")) return;
+    if (active === "Label") {
+      fetch(`${apiUrl}/api/labels/logos`, { headers: { Authorization: `Bearer ${apiToken}` } })
+        .then(async (response) => response.ok ? response.json() : Promise.reject(new Error("Unable to load label logos.")))
+        .then((rows: LabelLogo[]) => setLabelLogos(rows))
+        .catch(() => notify("Label logos could not be loaded."));
+    }
+    loadTemplates();
   }, [active, apiToken]);
 
   useEffect(() => {
@@ -514,6 +536,14 @@ function App() {
       .catch(() => notify("The dispatch history database could not be reached."));
   }, [active, apiToken, dispatchTab, oldDispatchSearch]);
 
+  function loadTemplates() {
+    if (!apiToken) return;
+    fetch(`${apiUrl}/api/label-templates`, { headers: { Authorization: `Bearer ${apiToken}` } })
+      .then((res) => (res.ok ? res.json() : []))
+      .then((tpls: LabelTemplate[]) => setLabelTemplates(tpls))
+      .catch((err) => console.error("Failed to load label templates:", err));
+  }
+
   function loadPrintersAndConfig() {
     if (!apiToken) return;
     setLoadingPrinters(true);
@@ -521,16 +551,21 @@ function App() {
     Promise.all([
       fetch(`${apiUrl}/api/printers/available`, { headers }).then((res) => res.ok ? res.json() : []),
       fetch(`${apiUrl}/api/printers/configuration`, { headers }).then((res) => res.ok ? res.json() : { regularDocumentPrinter: null, barcodePrinter: null }),
-      fetch(`${apiUrl}/api/printers/jobs?limit=20`, { headers }).then((res) => res.ok ? res.json() : [])
+      fetch(`${apiUrl}/api/printers/jobs?limit=20`, { headers }).then((res) => res.ok ? res.json() : []),
+      fetch(`${apiUrl}/api/label-templates`, { headers }).then((res) => res.ok ? res.json() : [])
     ])
-      .then(([printers, config, jobs]: [AvailablePrinter[], PrinterConfigurationsSummary, PrintJobRow[]]) => {
+      .then(([printers, config, jobs, tpls]: [AvailablePrinter[], PrinterConfigurationsSummary, PrintJobRow[], LabelTemplate[]]) => {
         setAvailablePrinters(printers);
         setPrinterConfig(config);
+        setLabelTemplates(tpls);
         if (config.regularDocumentPrinter?.printerName) {
           setSelectedRegularPrinter(config.regularDocumentPrinter.printerName);
         }
         if (config.barcodePrinter?.printerName) {
           setSelectedBarcodePrinter(config.barcodePrinter.printerName);
+          if (config.barcodePrinter.activeTemplateId) {
+            setSelectedBarcodeTemplateId(config.barcodePrinter.activeTemplateId);
+          }
           if (config.barcodePrinter.mode === 2) {
             setBarcodeMode("tsc");
           } else {
@@ -594,7 +629,7 @@ function App() {
           mode: barcodeMode === "tsc" ? 2 : 1,
           model: barcodeMode === "tsc" ? "TSC TTP-247" : "Laser",
           dpi: barcodeMode === "tsc" ? 203 : 600,
-          activeTemplateId: printerConfig.barcodePrinter?.activeTemplateId ?? null,
+          activeTemplateId: selectedBarcodeTemplateId ?? printerConfig.barcodePrinter?.activeTemplateId ?? null,
           paperSize: laserPaperSize,
           paperWidthMm: laserPaperWidthMm,
           paperHeightMm: laserPaperHeightMm,
@@ -1092,7 +1127,14 @@ function App() {
     const response = await fetch(`${apiUrl}/api/labels/generate`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ itemId: Number(labelDraft.itemId), manufactureDate: labelDraft.manufactureDate, quantity, logoMode: labelDraft.logoMode, labelLogoId: labelDraft.labelLogoId ? Number(labelDraft.labelLogoId) : null }),
+      body: JSON.stringify({
+        itemId: Number(labelDraft.itemId),
+        manufactureDate: labelDraft.manufactureDate,
+        quantity,
+        logoMode: labelDraft.logoMode,
+        labelLogoId: labelDraft.labelLogoId ? Number(labelDraft.labelLogoId) : null,
+        templateId: labelDraft.templateId ? Number(labelDraft.templateId) : null
+      }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) { notify(body.message ?? "Barcode generation failed."); return; }
@@ -1851,11 +1893,23 @@ function App() {
                   <form className="label-form" onSubmit={generateLabels}>
                     <div><p className="form-kicker">LABEL RECORD</p><h2>Print label</h2></div>
                     <label>Logo type<select value={labelDraft.logoMode} onChange={(event) => { const logoMode = event.target.value; setLabelDraft({ ...labelDraft, logoMode, labelLogoId: logoMode === "Custom" ? labelDraft.labelLogoId : "" }); if (logoMode === "Custom") setIsLogoDialogOpen(true); }}><option value="Nagreeka">Nagreeka</option><option value="WithALUFO">With ALUFO</option><option value="WithoutLogo">Without Logo</option><option value="Custom">Uploaded Logo</option></select></label>
+                    <label>Label template<select value={labelDraft.templateId} onChange={(event) => setLabelDraft({ ...labelDraft, templateId: event.target.value })}><option value="">Auto / Default Template</option>{labelTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} ({template.widthMm} × {template.heightMm} mm){template.isDefault ? " [Default]" : ""}</option>)}</select></label>
                     <label>Department<select value={labelDraft.departmentId} onChange={(event) => { setLabelDraft({ ...labelDraft, departmentId: event.target.value, itemId: "" }); setLabelItemPicker(""); setIsItemPickerOpen(false); }}><option value="">All departments</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
                     <label className="wide-field">Item<div className="item-picker"><input value={labelItemPicker} placeholder="Type item ID or name" role="combobox" aria-expanded={isItemPickerOpen} aria-controls="label-item-options" onFocus={() => setIsItemPickerOpen(true)} onBlur={() => window.setTimeout(() => setIsItemPickerOpen(false), 120)} onChange={(event) => { setLabelItemPicker(event.target.value); setLabelDraft({ ...labelDraft, itemId: "" }); setIsItemPickerOpen(true); }} />{isItemPickerOpen && <div className="item-picker-options" id="label-item-options" role="listbox">{labelPickerItems.length > 0 ? labelPickerItems.map((item) => <button key={item.id} type="button" role="option" aria-selected={String(item.id) === labelDraft.itemId} onMouseDown={(event) => event.preventDefault()} onClick={() => { setLabelDraft({ ...labelDraft, itemId: String(item.id), departmentId: String(item.departmentId) }); setLabelItemPicker(`${item.code} - ${item.name}`); setIsItemPickerOpen(false); }}><strong>{item.code}</strong><span>{item.name}</span></button>) : <p>No matching items.</p>}</div>}</div></label>
                     <label>MFG Date<input type="date" value={labelDraft.manufactureDate} onChange={(event) => setLabelDraft({ ...labelDraft, manufactureDate: event.target.value })} /></label>
                     <label>Qty<input type="number" min="1" max="500" step="1" value={labelDraft.quantity} onChange={(event) => setLabelDraft({ ...labelDraft, quantity: event.target.value })} /></label>
                     {labelDraft.logoMode === "Custom" && <div className="selected-logo"><span>Selected logo</span><strong>{labelLogos.find((logo) => String(logo.id) === labelDraft.labelLogoId)?.name ?? "Choose from the logo window"}</strong><button type="button" className="text-action" onClick={() => setIsLogoDialogOpen(true)}>Change</button></div>}
+                    {labelDraft.templateId && (() => {
+                      const chosenTpl = labelTemplates.find((t) => String(t.id) === labelDraft.templateId);
+                      if (!chosenTpl) return null;
+                      const is32Up = chosenTpl.widthMm <= 55 && chosenTpl.heightMm <= 35;
+                      return (
+                        <div className="selected-logo" style={{ gridColumn: "1 / -1", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "6px 12px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: "12px", color: "#166534" }}>Selected Template: <strong>{chosenTpl.name}</strong> ({chosenTpl.widthMm} × {chosenTpl.heightMm} mm)</span>
+                          <span style={{ fontSize: "12px", fontWeight: 600, color: "#15803d" }}>{is32Up ? "⭐ Dynamic A4 Layout: 32 labels/page (4 cols × 8 rows)" : `Layout: ${chosenTpl.widthMm}×${chosenTpl.heightMm} mm`}</span>
+                        </div>
+                      );
+                    })()}
                     <div className="label-range"><span>Label Print From</span><strong>{labelRange.from || "000000"}</strong><span>To</span><strong>{labelRange.to || "000000"}</strong></div>
                     <button type="submit" className="primary label-generate">Generate <span>-&gt;</span></button>
                   </form>
@@ -2079,6 +2133,7 @@ function App() {
                           onNotify={notify}
                           activeBarcodePrinter={printerConfig.barcodePrinter?.printerName ?? null}
                           onRefreshJobs={loadRecentPrintJobs}
+                          onTemplatesChanged={loadTemplates}
                         />
                       ) : (
                         <>
@@ -2139,6 +2194,30 @@ function App() {
                                   Labels are tiled across each A4 sheet according to these margins and gaps. It will NOT print 1 label per page.
                                 </p>
 
+                                <div style={{ marginBottom: "14px", background: "#ffffff", padding: "10px 14px", borderRadius: "6px", border: "1px solid #cbd5e1" }}>
+                                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#334155", display: "block", marginBottom: "6px" }}>
+                                    Active Label Template for Laser Grid
+                                  </label>
+                                  <select
+                                    value={selectedBarcodeTemplateId ?? ""}
+                                    onChange={(e) => {
+                                      const val = e.target.value ? Number(e.target.value) : null;
+                                      setSelectedBarcodeTemplateId(val);
+                                    }}
+                                    style={{ width: "100%", padding: "7px 10px", fontSize: "13px", borderRadius: "6px", border: "1px solid #94a3b8" }}
+                                  >
+                                    <option value="">-- Auto / Use Default Template --</option>
+                                    {labelTemplates.map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.name} ({t.widthMm} × {t.heightMm} mm) {t.isDefault ? "★ Default" : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <span style={{ fontSize: "11px", color: "#64748b", marginTop: "4px", display: "block" }}>
+                                    Label size for calculation: <strong>{laserCalculations.labelW} × {laserCalculations.labelH} mm</strong> ({laserCalculations.templateName})
+                                  </span>
+                                </div>
+
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px", marginBottom: "16px" }}>
                                   <label style={{ fontSize: "12px" }}>
                                     Paper Size
@@ -2198,6 +2277,10 @@ function App() {
                                   <div>
                                     <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", display: "block" }}>Capacity / Sheet</span>
                                     <strong style={{ fontSize: "14px", color: "#16a34a" }}>⭐ {laserCalculations.perPage} labels/page</strong>
+                                  </div>
+                                  <div>
+                                    <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", display: "block" }}>Label Size</span>
+                                    <strong style={{ fontSize: "13px", color: "#0f172a" }}>{laserCalculations.labelW} × {laserCalculations.labelH} mm</strong>
                                   </div>
                                 </div>
                               </div>

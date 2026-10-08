@@ -79,7 +79,7 @@ public interface IPrintService
 {
     Task<PrintJobDto> PrintDocumentAsync(PrinterCategory category, string documentName, byte[] content, string? requestedBy, int copies = 1, CancellationToken cancellationToken = default);
     Task<PrintJobDto> PrintReportDocumentAsync(PrintReportDocumentRequest request, string? requestedBy, CancellationToken cancellationToken = default);
-    Task<PrintJobDto?> PrintBarcodeLabelsAsync(IReadOnlyList<GeneratedBarcodePrintItem> labels, string? requestedBy, CancellationToken cancellationToken = default);
+    Task<PrintJobDto?> PrintBarcodeLabelsAsync(IReadOnlyList<GeneratedBarcodePrintItem> labels, string? requestedBy, int? templateId = null, CancellationToken cancellationToken = default);
     Task<PrintJobDto> TestPrintAsync(PrinterCategory category, string? requestedBy, CancellationToken cancellationToken = default);
 }
 

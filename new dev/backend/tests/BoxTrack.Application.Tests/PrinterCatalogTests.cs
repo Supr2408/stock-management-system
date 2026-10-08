@@ -32,7 +32,7 @@ public sealed class PrinterCatalogTests
             return Task.FromResult(new PrintJobDto(1, PrinterCategory.RegularDocument.ToString(), "TestPrinter", request.Title, null, 1, "Completed", requestedBy, DateTimeOffset.UtcNow, null, DateTimeOffset.UtcNow, null));
         }
 
-        public Task<PrintJobDto?> PrintBarcodeLabelsAsync(IReadOnlyList<GeneratedBarcodePrintItem> labels, string? requestedBy, CancellationToken cancellationToken = default)
+        public Task<PrintJobDto?> PrintBarcodeLabelsAsync(IReadOnlyList<GeneratedBarcodePrintItem> labels, string? requestedBy, int? templateId = null, CancellationToken cancellationToken = default)
         {
             LastPrintedCategory = PrinterCategory.Barcode;
             LastRequestedBy = requestedBy;

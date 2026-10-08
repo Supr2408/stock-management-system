@@ -8,6 +8,7 @@ interface Props {
   onNotify: (msg: string) => void;
   activeBarcodePrinter: string | null;
   onRefreshJobs?: () => void;
+  onTemplatesChanged?: () => void;
 }
 
 export const TscLabelEditor: React.FC<Props> = ({
@@ -16,6 +17,7 @@ export const TscLabelEditor: React.FC<Props> = ({
   onNotify,
   activeBarcodePrinter,
   onRefreshJobs,
+  onTemplatesChanged,
 }) => {
   const [templates, setTemplates] = useState<LabelTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
@@ -236,6 +238,7 @@ export const TscLabelEditor: React.FC<Props> = ({
 
       onNotify(`Template '${body.name}' saved successfully.`);
       loadTemplates();
+      onTemplatesChanged?.();
       setSelectedTemplateId(body.id);
       setDraft(body);
     } catch (err: any) {

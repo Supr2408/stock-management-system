@@ -66,6 +66,57 @@ public static class SeedData
             }
         }
 
+        // 4. Seed standard label templates if missing
+        if (!await db.LabelTemplates.AnyAsync(t => t.WidthMm == 50 && t.HeightMm == 30))
+        {
+            var a4_32Template = new LabelTemplate
+            {
+                Name = "A4 32-Up Grid (50x30mm)",
+                PrinterType = BarcodePrinterMode.Laser,
+                WidthMm = 50.0,
+                HeightMm = 30.0,
+                GapMm = 2.0,
+                Orientation = 0,
+                IsDefault = false,
+                CreatedBy = "seed",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                Elements =
+                [
+                    new() { ElementType = TemplateElementType.Logo, Xmm = 2, Ymm = 2, WidthMm = 20, HeightMm = 7, FitMode = LogoFitMode.Contain },
+                    new() { ElementType = TemplateElementType.Text, Xmm = 23, Ymm = 2, WidthMm = 25, HeightMm = 6, FontSize = 8, Content = "{ItemName}" },
+                    new() { ElementType = TemplateElementType.Barcode, Xmm = 2, Ymm = 10, WidthMm = 46, HeightMm = 12, BarcodeType = "128", HumanReadable = true, Content = "{Barcode}" },
+                    new() { ElementType = TemplateElementType.Text, Xmm = 2, Ymm = 23, WidthMm = 46, HeightMm = 5, FontSize = 7, Content = "MFG: {MfgDate} | {Barcode}" }
+                ]
+            };
+            db.LabelTemplates.Add(a4_32Template);
+        }
+
+        if (!await db.LabelTemplates.AnyAsync(t => t.WidthMm == 100 && t.HeightMm == 50))
+        {
+            var tscTemplate = new LabelTemplate
+            {
+                Name = "Standard TSC 100x50 Shipping",
+                PrinterType = BarcodePrinterMode.Tsc,
+                WidthMm = 100.0,
+                HeightMm = 50.0,
+                GapMm = 3.0,
+                Orientation = 0,
+                IsDefault = true,
+                CreatedBy = "seed",
+                CreatedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow,
+                Elements =
+                [
+                    new() { ElementType = TemplateElementType.Logo, Xmm = 5, Ymm = 3, WidthMm = 90, HeightMm = 12, FitMode = LogoFitMode.Contain },
+                    new() { ElementType = TemplateElementType.Text, Xmm = 5, Ymm = 16, WidthMm = 90, HeightMm = 6, FontSize = 12, Content = "{ItemName}" },
+                    new() { ElementType = TemplateElementType.Barcode, Xmm = 5, Ymm = 23, WidthMm = 90, HeightMm = 18, BarcodeType = "128", HumanReadable = true, Content = "{Barcode}" },
+                    new() { ElementType = TemplateElementType.Text, Xmm = 5, Ymm = 43, WidthMm = 90, HeightMm = 5, FontSize = 8, Content = "MFG: {MfgDate}  Sr: {SerialNo}" }
+                ]
+            };
+            db.LabelTemplates.Add(tscTemplate);
+        }
+
         await db.SaveChangesAsync();
     }
 }

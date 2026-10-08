@@ -119,7 +119,7 @@ public sealed class WindowsPrintService(
         return ToDto(job);
     }
 
-    public async Task<PrintJobDto?> PrintBarcodeLabelsAsync(IReadOnlyList<GeneratedBarcodePrintItem> labels, string? requestedBy, CancellationToken cancellationToken = default)
+    public async Task<PrintJobDto?> PrintBarcodeLabelsAsync(IReadOnlyList<GeneratedBarcodePrintItem> labels, string? requestedBy, int? templateId = null, CancellationToken cancellationToken = default)
     {
         if (labels.Count == 0) return null;
 
@@ -167,7 +167,20 @@ public sealed class WindowsPrintService(
             job.Status = PrintJobStatus.Printing;
             await db.SaveChangesAsync(cancellationToken);
 
-            var template = config.ActiveTemplate;
+            LabelTemplate? template = null;
+            if (templateId.HasValue && templateId.Value > 0)
+            {
+                template = await db.LabelTemplates
+                    .Include(t => t.Elements)
+                    .ThenInclude(e => e.Logo)
+                    .FirstOrDefaultAsync(t => t.Id == templateId.Value && t.IsActive, cancellationToken);
+            }
+
+            if (template == null)
+            {
+                template = config.ActiveTemplate;
+            }
+
             if (template == null)
             {
                 template = await db.LabelTemplates

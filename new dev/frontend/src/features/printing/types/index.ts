@@ -54,6 +54,15 @@ export interface PrinterConfigItem {
   dpi: number;
   activeTemplateId?: number | null;
   activeTemplateName?: string | null;
+  paperSize?: string;
+  paperWidthMm?: number;
+  paperHeightMm?: number;
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
+  horizontalGapMm?: number;
+  verticalGapMm?: number;
 }
 
 export interface PrinterConfigurationsSummary {
