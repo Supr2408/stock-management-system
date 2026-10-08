@@ -12,6 +12,7 @@ public sealed class WindowsPrintService(
     BoxTrackDbContext db,
     ITscCommandGenerator tscCommandGenerator,
     IPrinterTransport printerTransport,
+    LaserA4LabelCompositor laserCompositor,
     ILogger<WindowsPrintService> logger) : IPrintService
 {
     public async Task<PrintJobDto> PrintDocumentAsync(PrinterCategory category, string documentName, byte[] content, string? requestedBy, int copies = 1, CancellationToken cancellationToken = default)
@@ -188,7 +189,7 @@ public sealed class WindowsPrintService(
             else
             {
                 // Laser / standard Windows vector document print
-                ExecuteWindowsBarcodeLabelsPrint(labels, config.PrinterName, job);
+                ExecuteWindowsBarcodeLabelsPrint(labels, config.PrinterName, job, config);
             }
 
             job.Status = PrintJobStatus.Completed;
@@ -365,10 +366,11 @@ public sealed class WindowsPrintService(
     }
 
     [SupportedOSPlatform("windows")]
-    private static void ExecuteWindowsBarcodeLabelsPrint(
+    private void ExecuteWindowsBarcodeLabelsPrint(
         IReadOnlyList<GeneratedBarcodePrintItem> labels,
         string printerName,
-        PrintJob job)
+        PrintJob job,
+        PrinterConfiguration config)
     {
         using var printDoc = new PrintDocument();
         printDoc.PrinterSettings.PrinterName = printerName;
@@ -390,42 +392,45 @@ public sealed class WindowsPrintService(
             job.DocumentReference = tempFile;
         }
 
-        int labelIndex = 0;
+        // Prepare labels data dictionary
+        var labelsData = labels.Select(lbl => (IReadOnlyDictionary<string, string>)new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Barcode"] = lbl.BarcodeValue,
+            ["ItemName"] = lbl.ItemName,
+            ["Description"] = lbl.Description,
+            ["MfgDate"] = lbl.ManufactureDate.ToString("dd/MM/yyyy"),
+            ["SerialNo"] = lbl.SerialNumber.ToString("000000"),
+            ["LogoMode"] = lbl.LogoMode
+        }).ToList();
+
+        // Use active template if configured, otherwise create a sensible default 50x30 or 100x50 template
+        var template = config.ActiveTemplate ?? new LabelTemplate
+        {
+            Name = "Default Laser Barcode Label",
+            WidthMm = 50.0,
+            HeightMm = 30.0,
+            Elements =
+            [
+                new() { ElementType = TemplateElementType.Text, Xmm = 2, Ymm = 2, WidthMm = 46, HeightMm = 5, FontSize = 10, Content = "{ItemName}" },
+                new() { ElementType = TemplateElementType.Barcode, Xmm = 2, Ymm = 8, WidthMm = 46, HeightMm = 14, BarcodeType = "128", HumanReadable = true, Content = "{Barcode}" },
+                new() { ElementType = TemplateElementType.Text, Xmm = 2, Ymm = 23, WidthMm = 46, HeightMm = 5, FontSize = 8, Content = "MFG: {MfgDate} Sr: {SerialNo}" }
+            ]
+        };
+
+        var layout = laserCompositor.CalculateLayout(template, config);
+        int labelsPerPage = Math.Max(1, layout.LabelsPerPage);
+        int totalPages = (int)Math.Ceiling((double)labelsData.Count / labelsPerPage);
+        int currentPageIndex = 0;
 
         printDoc.PrintPage += (sender, e) =>
         {
-            if (labelIndex >= labels.Count) return;
-            var label = labels[labelIndex];
+            if (currentPageIndex >= totalPages) return;
             var g = e.Graphics ?? throw new InvalidOperationException("Could not obtain graphics.");
 
-            using var fontCompany = new Font("Arial", 11, FontStyle.Bold);
-            using var fontItem = new Font("Arial", 10, FontStyle.Bold);
-            using var fontBarcode = new Font("Courier New", 15, FontStyle.Bold);
-            using var fontCode = new Font("Courier New", 12, FontStyle.Bold);
-            using var fontMeta = new Font("Arial", 8.5f, FontStyle.Regular);
+            laserCompositor.RenderA4SheetPage(g, template, labelsData, currentPageIndex, config);
 
-            float x = 25;
-            float y = 20;
-
-            if (label.LogoMode != "WithoutLogo")
-            {
-                g.DrawString("NAGREEKA INDCON", fontCompany, Brushes.Black, x, y);
-                y += 20;
-            }
-
-            g.DrawString(label.ItemName, fontItem, Brushes.Black, x, y);
-            y += 20;
-
-            g.DrawString("|||| | ||||| |||| | ||||| ||||", fontBarcode, Brushes.Black, x, y);
-            y += 24;
-
-            g.DrawString(label.BarcodeValue, fontCode, Brushes.Black, x, y);
-            y += 22;
-
-            g.DrawString($"MFG: {label.ManufactureDate:dd/MM/yyyy}   Sr: {label.SerialNumber:000000}", fontMeta, Brushes.DarkSlateGray, x, y);
-
-            labelIndex++;
-            e.HasMorePages = (labelIndex < labels.Count);
+            currentPageIndex++;
+            e.HasMorePages = (currentPageIndex < totalPages);
         };
 
         printDoc.Print();

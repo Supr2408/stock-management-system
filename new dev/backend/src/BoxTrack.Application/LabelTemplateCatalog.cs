@@ -71,7 +71,16 @@ public sealed record UpdateBarcodePrinterConfigRequest(
     int Mode, // 1 = Laser, 2 = Tsc
     string Model,
     int Dpi,
-    int? ActiveTemplateId
+    int? ActiveTemplateId,
+    string PaperSize = "A4",
+    double PaperWidthMm = 210.0,
+    double PaperHeightMm = 297.0,
+    double MarginLeftMm = 10.0,
+    double MarginRightMm = 10.0,
+    double MarginTopMm = 10.0,
+    double MarginBottomMm = 10.0,
+    double HorizontalGapMm = 2.0,
+    double VerticalGapMm = 2.0
 );
 
 public sealed record PrintTemplateJobRequest(

@@ -161,7 +161,61 @@ This gives approximately **8 dots per mm** ($1\text{ mm} \approx 7.9921\text{ do
 
 ---
 
-## 7. Current Operational Model & Limitations
+## 7. Laser Barcode Multi-Label A4 Sheet Compositor
+
+### Single Label Template for Both TSC and Laser
+BoxTrack defines each barcode label template **once** in the database (`LabelTemplate` with `LabelTemplateElement` children). The same template is processed through two dedicated renderers:
+1. **TSC Mode**: Renders through `TscTsplCommandGenerator` into raw TSPL/TSPL-EZ commands for industrial thermal printers.
+2. **Laser Mode**: Renders through `LaserA4LabelCompositor` (`ILaserLabelCompositor`), which dynamically tiles multiple individual barcode labels onto physical A4 sheets ($210\text{ mm} \times 297\text{ mm}$). **It never prints 1 label per PDF page.**
+
+### A4 Page Geometry Math
+Given paper dimensions, margins, and gaps configured by the administrator in `PrinterConfiguration`:
+- $\text{UsableWidth} = \text{PaperWidthMm} - \text{MarginLeftMm} - \text{MarginRightMm}$
+- $\text{UsableHeight} = \text{PaperHeightMm} - \text{MarginTopMm} - \text{MarginBottomMm}$
+- $\text{Columns} = \left\lfloor \frac{\text{UsableWidth} + \text{HorizontalGapMm}}{\text{LabelWidthMm} + \text{HorizontalGapMm}} \right\rfloor$
+- $\text{Rows} = \left\lfloor \frac{\text{UsableHeight} + \text{VerticalGapMm}}{\text{LabelHeightMm} + \text{VerticalGapMm}} \right\rfloor$
+- $\text{LabelsPerPage} = \text{Columns} \times \text{Rows}$
+
+### Tiling & Pagination
+For $N$ labels to print:
+- $\text{PageCount} = \lceil N / \text{LabelsPerPage} \rceil$
+- Label $i$ ($0 \le i < N$) is mapped to:
+  - $\text{PageIndex} = \lfloor i / \text{LabelsPerPage} \rfloor$
+  - $\text{SlotInPage} = i \pmod{\text{LabelsPerPage}}$
+  - $\text{Col} = \text{SlotInPage} \pmod{\text{Columns}}$
+  - $\text{Row} = \lfloor \text{SlotInPage} / \text{Columns} \rfloor$
+  - $X = \text{MarginLeftMm} + \text{Col} \times (\text{LabelWidthMm} + \text{HorizontalGapMm})$
+  - $Y = \text{MarginTopMm} + \text{Row} \times (\text{LabelHeightMm} + \text{VerticalGapMm})$
+
+For example, standard $50\text{ mm} \times 30\text{ mm}$ labels on A4 with $10\text{ mm}$ margins and $2\text{ mm}$ gaps yield **3 columns $\times$ 8 rows = 24 labels per sheet**.
+
+### High-Fidelity Vector Rendering
+- Barcodes are rendered as crisp vector line strips (GDI+ / SkiaSharp vector primitives) to ensure 100% optical scanner readability on 600 DPI laser printers.
+- Logos and graphics are resampled at 300 DPI high-quality bicubic interpolation using the template element's configured aspect ratio mode (`Contain`, `Cover`, `Stretch`).
+- Borders and boxes are drawn with fractional line widths matching configured thickness.
+
+---
+
+## 8. Role-Based Authentication & Operational Scoping
+
+BoxTrack implements a single unified login page (`/api/auth/login`) with three distinct operational roles:
+
+| Role | Username Pattern | Scope & Permissions | Restricted Features |
+| :--- | :--- | :--- | :--- |
+| **Admin** | `admin` | Full unrestricted access across all departments, Master data, Customer CUD, Label generation, Duplicate labels, Production, Dispatch, User accounts, and Printer subsystem. | None |
+| **Production** | Department name (e.g. `afc`, `afr`, `plascon`, `assembly`) | Department-scoped. Only sees and operates on pending production, stock receipts, and reports for their assigned department. Backend strictly enforces this via `CurrentUser.DepartmentId`. | Cannot access Master, Customer, Label generation, Duplicate labels, Dispatch, Users, or Printer config. |
+| **QC** | `qc` | Cross-department quality control. Accesses Production, Label generation, Dispatch, and Reports across all departments. | Explicitly blocked from "Print duplicate label", User management, and Printer configuration. |
+
+### Development Passwords Notice
+> [!WARNING]
+> **DEVELOPMENT USE ONLY — MUST BE REMOVED BEFORE PRODUCTION DEPLOYMENT**
+> 
+> Temporary passwords (e.g., `123` for Production and QC accounts, `Password123!` for Admin) are seeded into the database and displayed exclusively on the **Admin -> User accounts** desk for developer convenience.
+> Passwords are never logged in application logs and are never embedded in JWT authentication tokens.
+
+---
+
+## 9. Current Operational Model & Limitations
 
 - **Co-located Server & Admin PC**:
   The backend API runs directly on the Admin PC where the physical or USB/network printers are installed.
@@ -170,9 +224,9 @@ This gives approximately **8 dots per mm** ($1\text{ mm} \approx 7.9921\text{ do
 
 ---
 
-## 8. Future Extensibility: Department Printer Agents
+## 10. Future Extensibility: Department Printer Agents
 
-In subsequent phases when BoxTrack scales to multiple departments (e.g., Yarn Spinning, Packaging, Warehouse Dispatch), printers may be physically attached to departmental client PCs rather than the central server.
+In subsequent phases when BoxTrack scales to multiple departments, printers may be physically attached to departmental client PCs rather than the central server:
 
 ```text
                Central BoxTrack Server
@@ -185,5 +239,6 @@ In subsequent phases when BoxTrack scales to multiple departments (e.g., Yarn Sp
  [Office Laser]     [Zebra ZD220]    [TSC TTP-247]
 ```
 
-Because `IPrinterDiscoveryService`, `IPrintService`, `ITscCommandGenerator`, and `IPrinterTransport` are completely decoupled interfaces, remote agents (via SignalR / gRPC / MQTT) can easily implement `IPrinterTransport` without modifying domain entities or frontend components.
+Because `IPrinterDiscoveryService`, `IPrintService`, `ITscCommandGenerator`, `ILaserLabelCompositor`, and `IPrinterTransport` are completely decoupled interfaces, remote agents (via SignalR / gRPC / MQTT) can easily implement `IPrinterTransport` without modifying domain entities or frontend components.
+
 

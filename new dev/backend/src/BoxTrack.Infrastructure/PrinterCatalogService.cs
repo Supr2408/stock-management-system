@@ -159,6 +159,15 @@ public sealed class PrinterCatalogService(
             existing.Model = string.IsNullOrWhiteSpace(request.Model) ? "TSC TTP-247" : request.Model.Trim();
             existing.Dpi = request.Dpi > 0 ? request.Dpi : 203;
             existing.ActiveTemplateId = request.ActiveTemplateId;
+            existing.PaperSize = string.IsNullOrWhiteSpace(request.PaperSize) ? "A4" : request.PaperSize.Trim();
+            existing.PaperWidthMm = request.PaperWidthMm > 0 ? request.PaperWidthMm : 210.0;
+            existing.PaperHeightMm = request.PaperHeightMm > 0 ? request.PaperHeightMm : 297.0;
+            existing.MarginLeftMm = request.MarginLeftMm >= 0 ? request.MarginLeftMm : 10.0;
+            existing.MarginRightMm = request.MarginRightMm >= 0 ? request.MarginRightMm : 10.0;
+            existing.MarginTopMm = request.MarginTopMm >= 0 ? request.MarginTopMm : 10.0;
+            existing.MarginBottomMm = request.MarginBottomMm >= 0 ? request.MarginBottomMm : 10.0;
+            existing.HorizontalGapMm = request.HorizontalGapMm >= 0 ? request.HorizontalGapMm : 2.0;
+            existing.VerticalGapMm = request.VerticalGapMm >= 0 ? request.VerticalGapMm : 2.0;
             existing.UpdatedAt = DateTimeOffset.UtcNow;
             existing.CreatedBy = userId;
 
@@ -179,6 +188,15 @@ public sealed class PrinterCatalogService(
                 Model = string.IsNullOrWhiteSpace(request.Model) ? "TSC TTP-247" : request.Model.Trim(),
                 Dpi = request.Dpi > 0 ? request.Dpi : 203,
                 ActiveTemplateId = request.ActiveTemplateId,
+                PaperSize = string.IsNullOrWhiteSpace(request.PaperSize) ? "A4" : request.PaperSize.Trim(),
+                PaperWidthMm = request.PaperWidthMm > 0 ? request.PaperWidthMm : 210.0,
+                PaperHeightMm = request.PaperHeightMm > 0 ? request.PaperHeightMm : 297.0,
+                MarginLeftMm = request.MarginLeftMm >= 0 ? request.MarginLeftMm : 10.0,
+                MarginRightMm = request.MarginRightMm >= 0 ? request.MarginRightMm : 10.0,
+                MarginTopMm = request.MarginTopMm >= 0 ? request.MarginTopMm : 10.0,
+                MarginBottomMm = request.MarginBottomMm >= 0 ? request.MarginBottomMm : 10.0,
+                HorizontalGapMm = request.HorizontalGapMm >= 0 ? request.HorizontalGapMm : 2.0,
+                VerticalGapMm = request.VerticalGapMm >= 0 ? request.VerticalGapMm : 2.0,
                 IsActive = true,
                 CreatedBy = userId,
                 CreatedAt = DateTimeOffset.UtcNow,
@@ -241,6 +259,15 @@ public sealed class PrinterCatalogService(
         entity.Model,
         entity.Dpi,
         entity.ActiveTemplateId,
-        entity.ActiveTemplate?.Name
+        entity.ActiveTemplate?.Name,
+        entity.PaperSize,
+        entity.PaperWidthMm,
+        entity.PaperHeightMm,
+        entity.MarginLeftMm,
+        entity.MarginRightMm,
+        entity.MarginTopMm,
+        entity.MarginBottomMm,
+        entity.HorizontalGapMm,
+        entity.VerticalGapMm
     );
 }

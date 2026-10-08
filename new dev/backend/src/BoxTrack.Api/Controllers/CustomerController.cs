@@ -9,20 +9,24 @@ using System.Text;
 namespace BoxTrack.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+[Authorize]
 [Route("api/customers")]
 public sealed class CustomerController(ICustomerCatalog catalog) : ControllerBase
 {
     [HttpGet]
+    [Authorize(Roles = "Admin,QC")]
     public async Task<ActionResult<Page<CustomerRow>>> List(string? search, int page = 1, int pageSize = 100, CancellationToken cancellationToken = default) => Ok(await catalog.ListAsync(search, page, pageSize, cancellationToken));
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<CustomerRow>> Create(CustomerInput input, CancellationToken cancellationToken) => await ExecuteAsync(() => catalog.CreateAsync(input, User.Identity?.Name, cancellationToken));
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<CustomerRow>> Update(int id, CustomerInput input, CancellationToken cancellationToken) => await ExecuteAsync(() => catalog.UpdateAsync(id, input, User.Identity?.Name, cancellationToken));
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         try { await catalog.DeleteAsync(id, User.Identity?.Name, cancellationToken); return NoContent(); }
@@ -30,6 +34,7 @@ public sealed class CustomerController(ICustomerCatalog catalog) : ControllerBas
     }
 
     [HttpPost("import")]
+    [Authorize(Roles = "Admin")]
     [RequestSizeLimit(10_000_000)]
     public async Task<ActionResult<CustomerImportResult>> Import(IFormFile file, CancellationToken cancellationToken)
     {
@@ -46,6 +51,7 @@ public sealed class CustomerController(ICustomerCatalog catalog) : ControllerBas
     }
 
     [HttpGet("export")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult> Export(string format = "csv", CancellationToken cancellationToken = default)
     {
         var rows = await AllCustomersAsync(cancellationToken);

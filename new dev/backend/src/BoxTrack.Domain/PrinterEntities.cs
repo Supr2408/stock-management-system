@@ -45,6 +45,17 @@ public sealed class PrinterConfiguration : AuditedEntity
     public int Dpi { get; set; } = 203;
     public int? ActiveTemplateId { get; set; }
     public LabelTemplate? ActiveTemplate { get; set; }
+
+    // Laser A4 sheet layout configuration
+    public string PaperSize { get; set; } = "A4";
+    public double PaperWidthMm { get; set; } = 210.0;
+    public double PaperHeightMm { get; set; } = 297.0;
+    public double MarginLeftMm { get; set; } = 10.0;
+    public double MarginRightMm { get; set; } = 10.0;
+    public double MarginTopMm { get; set; } = 10.0;
+    public double MarginBottomMm { get; set; } = 10.0;
+    public double HorizontalGapMm { get; set; } = 2.0;
+    public double VerticalGapMm { get; set; } = 2.0;
 }
 
 public sealed class LabelTemplate : AuditedEntity

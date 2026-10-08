@@ -5,20 +5,24 @@ using Microsoft.AspNetCore.Mvc;
 namespace BoxTrack.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+[Authorize]
 [Route("api/items")]
 public sealed class ItemController(IItemCatalog catalog) : ControllerBase
 {
     [HttpGet]
+    [Authorize(Roles = "Admin,Production,QC")]
     public async Task<ActionResult<Page<ItemRow>>> List(string? search, int? departmentId, int page = 1, int pageSize = 100, CancellationToken cancellationToken = default) => Ok(await catalog.ListAsync(search, departmentId, page, pageSize, cancellationToken));
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ItemRow>> Create(ItemInput input, CancellationToken cancellationToken) => await ExecuteAsync(() => catalog.CreateAsync(input, User.Identity?.Name, cancellationToken));
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<ItemRow>> Update(int id, ItemInput input, CancellationToken cancellationToken) => await ExecuteAsync(() => catalog.UpdateAsync(id, input, User.Identity?.Name, cancellationToken));
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         try { await catalog.DeleteAsync(id, User.Identity?.Name, cancellationToken); return NoContent(); }
@@ -26,6 +30,7 @@ public sealed class ItemController(IItemCatalog catalog) : ControllerBase
     }
 
     [HttpPost("import")]
+    [Authorize(Roles = "Admin")]
     [RequestSizeLimit(10_000_000)]
     public async Task<ActionResult<ItemImportResult>> Import(IFormFile file, CancellationToken cancellationToken)
     {

@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace BoxTrack.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,Production,QC")]
 [Route("api/reports")]
 public sealed class ReportsController(IReportCatalog catalog) : ControllerBase
 {

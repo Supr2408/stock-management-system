@@ -15,7 +15,16 @@ public sealed record PrinterConfigurationDto(
     string Model = "TSC TTP-247",
     int Dpi = 203,
     int? ActiveTemplateId = null,
-    string? ActiveTemplateName = null
+    string? ActiveTemplateName = null,
+    string PaperSize = "A4",
+    double PaperWidthMm = 210.0,
+    double PaperHeightMm = 297.0,
+    double MarginLeftMm = 10.0,
+    double MarginRightMm = 10.0,
+    double MarginTopMm = 10.0,
+    double MarginBottomMm = 10.0,
+    double HorizontalGapMm = 2.0,
+    double VerticalGapMm = 2.0
 );
 
 public sealed record PrinterConfigurationsSummaryDto(

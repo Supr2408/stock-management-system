@@ -17,6 +17,7 @@ public sealed class BoxTrackDbContext(DbContextOptions<BoxTrackDbContext> option
     public DbSet<PrintJob> PrintJobs => Set<PrintJob>();
     public DbSet<LabelTemplate> LabelTemplates => Set<LabelTemplate>();
     public DbSet<LabelTemplateElement> LabelTemplateElements => Set<LabelTemplateElement>();
+    public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -51,6 +52,8 @@ public sealed class BoxTrackDbContext(DbContextOptions<BoxTrackDbContext> option
         modelBuilder.Entity<LabelTemplate>().HasMany(x => x.Elements).WithOne(x => x.Template).HasForeignKey(x => x.TemplateId).OnDelete(DeleteBehavior.Cascade);
         modelBuilder.Entity<LabelTemplateElement>().ToTable("label_template_element");
         modelBuilder.Entity<LabelTemplateElement>().HasOne(x => x.Logo).WithMany().HasForeignKey(x => x.LogoId).OnDelete(DeleteBehavior.SetNull);
+        modelBuilder.Entity<UserAccount>().ToTable("user_account").HasIndex(x => x.Username).IsUnique();
+        modelBuilder.Entity<UserAccount>().HasOne(x => x.Department).WithMany().HasForeignKey(x => x.DepartmentId).OnDelete(DeleteBehavior.Restrict);
     }
 
     private static string ToSnakeCase(string value) => string.Concat(value.Select((character, index) => index > 0 && char.IsUpper(character) ? "_" + char.ToLowerInvariant(character) : character.ToString().ToLowerInvariant()));

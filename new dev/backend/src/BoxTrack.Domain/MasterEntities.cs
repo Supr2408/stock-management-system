@@ -111,3 +111,14 @@ public sealed class DispatchRecord
     public string? CreatedBy { get; set; }
     public List<BarcodeLabel> BarcodeLabels { get; set; } = [];
 }
+
+public sealed class UserAccount : AuditedEntity
+{
+    public required string Username { get; set; }
+    public required string Role { get; set; } // "Admin", "Production", "QC"
+    public string? PasswordHash { get; set; }
+    public string? TemporaryDevPassword { get; set; } // DEVELOPMENT ONLY - MUST BE REMOVED BEFORE PRODUCTION
+    public int? DepartmentId { get; set; }
+    public Department? Department { get; set; }
+}
+

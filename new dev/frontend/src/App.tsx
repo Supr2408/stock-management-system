@@ -72,6 +72,17 @@ type SalesOrderSummaryRow = { salesOrderNumber: string; itemName: string; quanti
 type BoxDetailRow = { itemName: string; batchNumber: string; barcodeValue: string; stockStatus: string; salesOrderNumber?: string; customerName: string };
 type ReportPrintDocument = { title: string; subtitle?: string; address?: string[]; headers: string[]; rows: string[][] };
 type AvailablePrinter = { name: string; displayName: string; status: string; isDefault: boolean };
+type UserAccount = {
+  id: number;
+  username: string;
+  role: string;
+  departmentId: number | null;
+  departmentName: string | null;
+  isActive: boolean;
+  createdAt: string;
+  temporaryDevPassword?: string;
+};
+
 type PrinterConfigItem = {
   id: number;
   category: "RegularDocument" | "Barcode";
@@ -84,6 +95,15 @@ type PrinterConfigItem = {
   dpi?: number;
   activeTemplateId?: number | null;
   activeTemplateName?: string | null;
+  paperSize?: string;
+  paperWidthMm?: number;
+  paperHeightMm?: number;
+  marginLeftMm?: number;
+  marginRightMm?: number;
+  marginTopMm?: number;
+  marginBottomMm?: number;
+  horizontalGapMm?: number;
+  verticalGapMm?: number;
 };
 type PrinterConfigurationsSummary = { regularDocumentPrinter: PrinterConfigItem | null; barcodePrinter: PrinterConfigItem | null };
 type PrintJobRow = { id: number; category: string; printerName: string; documentName: string; documentReference?: string; copies: number; status: string; requestedBy?: string; createdAt: string; startedAt?: string; completedAt?: string; errorMessage?: string };
@@ -268,6 +288,21 @@ function App() {
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [apiToken, setApiToken] = useState("");
+  const [currentUserRole, setCurrentUserRole] = useState<string>("Admin");
+  const [currentUserDeptId, setCurrentUserDeptId] = useState<number | null>(null);
+  const [currentUserDeptName, setCurrentUserDeptName] = useState<string | null>(null);
+  const [currentUsername, setCurrentUsername] = useState<string>("");
+  const [userAccounts, setUserAccounts] = useState<UserAccount[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [laserPaperSize, setLaserPaperSize] = useState("A4");
+  const [laserPaperWidthMm, setLaserPaperWidthMm] = useState(210);
+  const [laserPaperHeightMm, setLaserPaperHeightMm] = useState(297);
+  const [laserMarginLeftMm, setLaserMarginLeftMm] = useState(10);
+  const [laserMarginRightMm, setLaserMarginRightMm] = useState(10);
+  const [laserMarginTopMm, setLaserMarginTopMm] = useState(10);
+  const [laserMarginBottomMm, setLaserMarginBottomMm] = useState(10);
+  const [laserGapXMm, setLaserGapXMm] = useState(2);
+  const [laserGapYMm, setLaserGapYMm] = useState(2);
   const [departments, setDepartments] = useState(initialDepartments);
   const [items, setItems] = useState(initialItems);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -331,6 +366,35 @@ function App() {
   );
   const filteredCustomers = customers.filter((customer) => customer.name.toLowerCase().includes(customerSearch.toLowerCase()));
   const cityOptions = useMemo(() => Array.from(new Set([...commonCities, ...customers.map((customer) => customer.city).filter(Boolean)])).sort((left, right) => left.localeCompare(right)), [customers]);
+
+  const roleMenu = useMemo(() => {
+    if (currentUserRole === "Production") {
+      return ["Production", "Reports"];
+    }
+    if (currentUserRole === "QC") {
+      return ["Production", "Label", "Dispatch", "Reports"];
+    }
+    return menu;
+  }, [currentUserRole]);
+
+  const laserCalculations = useMemo(() => {
+    const usableW = Math.max(0, laserPaperWidthMm - laserMarginLeftMm - laserMarginRightMm);
+    const usableH = Math.max(0, laserPaperHeightMm - laserMarginTopMm - laserMarginBottomMm);
+    const labelW = 50;
+    const labelH = 30;
+    const cols = Math.max(0, Math.floor((usableW + laserGapXMm) / (labelW + laserGapXMm)));
+    const rows = Math.max(0, Math.floor((usableH + laserGapYMm) / (labelH + laserGapYMm)));
+    return {
+      usableW,
+      usableH,
+      cols,
+      rows,
+      perPage: cols * rows,
+      labelW,
+      labelH
+    };
+  }, [laserPaperWidthMm, laserPaperHeightMm, laserMarginLeftMm, laserMarginRightMm, laserMarginTopMm, laserMarginBottomMm, laserGapXMm, laserGapYMm]);
+
   const departmentLabelItems = items.filter((item) => !labelDraft.departmentId || String(item.departmentId) === labelDraft.departmentId);
   const labelItems = departmentLabelItems.filter((item) => {
     const query = labelItemSearch.trim().toLowerCase();
@@ -472,6 +536,15 @@ function App() {
           } else {
             setBarcodeMode("laser");
           }
+          if (config.barcodePrinter.paperSize) setLaserPaperSize(config.barcodePrinter.paperSize);
+          if (config.barcodePrinter.paperWidthMm) setLaserPaperWidthMm(config.barcodePrinter.paperWidthMm);
+          if (config.barcodePrinter.paperHeightMm) setLaserPaperHeightMm(config.barcodePrinter.paperHeightMm);
+          if (config.barcodePrinter.marginLeftMm != null) setLaserMarginLeftMm(config.barcodePrinter.marginLeftMm);
+          if (config.barcodePrinter.marginRightMm != null) setLaserMarginRightMm(config.barcodePrinter.marginRightMm);
+          if (config.barcodePrinter.marginTopMm != null) setLaserMarginTopMm(config.barcodePrinter.marginTopMm);
+          if (config.barcodePrinter.marginBottomMm != null) setLaserMarginBottomMm(config.barcodePrinter.marginBottomMm);
+          if (config.barcodePrinter.horizontalGapMm != null) setLaserGapXMm(config.barcodePrinter.horizontalGapMm);
+          if (config.barcodePrinter.verticalGapMm != null) setLaserGapYMm(config.barcodePrinter.verticalGapMm);
         }
         setRecentPrintJobs(jobs);
       })
@@ -490,6 +563,22 @@ function App() {
       .catch(() => {});
   }
 
+  function loadUserAccounts() {
+    if (!apiToken || currentUserRole !== "Admin") return;
+    setLoadingUsers(true);
+    fetch(`${apiUrl}/api/users`, { headers: { Authorization: `Bearer ${apiToken}` } })
+      .then(async (res) => res.ok ? res.json() : [])
+      .then((users: UserAccount[]) => setUserAccounts(users))
+      .catch(() => notify("Could not load user accounts."))
+      .finally(() => setLoadingUsers(false));
+  }
+
+  useEffect(() => {
+    if (active === "User" && apiToken && currentUserRole === "Admin") {
+      loadUserAccounts();
+    }
+  }, [active, apiToken, currentUserRole]);
+
   function savePrinterConfig(category: "regular" | "barcode") {
     if (!apiToken) return;
     const targetPrinter = category === "regular" ? selectedRegularPrinter : selectedBarcodePrinter;
@@ -506,6 +595,15 @@ function App() {
           model: barcodeMode === "tsc" ? "TSC TTP-247" : "Laser",
           dpi: barcodeMode === "tsc" ? 203 : 600,
           activeTemplateId: printerConfig.barcodePrinter?.activeTemplateId ?? null,
+          paperSize: laserPaperSize,
+          paperWidthMm: laserPaperWidthMm,
+          paperHeightMm: laserPaperHeightMm,
+          marginLeftMm: laserMarginLeftMm,
+          marginRightMm: laserMarginRightMm,
+          marginTopMm: laserMarginTopMm,
+          marginBottomMm: laserMarginBottomMm,
+          horizontalGapMm: laserGapXMm,
+          verticalGapMm: laserGapYMm
         };
 
     fetch(`${apiUrl}/api/printers/configuration/${category}`, {
@@ -556,7 +654,7 @@ function App() {
     event.preventDefault();
     setLoginError("");
     if (!userName.trim() || !password) {
-      setLoginError("Enter your admin username and password.");
+      setLoginError("Enter your username and password.");
       return;
     }
     try {
@@ -572,6 +670,22 @@ function App() {
       }
       const body = await response.json();
       setApiToken(body.token);
+      const role = body.role ?? "Admin";
+      setCurrentUserRole(role);
+      setCurrentUserDeptId(body.departmentId ?? null);
+      setCurrentUserDeptName(body.departmentName ?? null);
+      setCurrentUsername(body.username ?? userName);
+      if (role === "Production") {
+        setActive("Production");
+        if (body.departmentId) {
+          setProductionDepartmentId(String(body.departmentId));
+          setReportDepartmentId(String(body.departmentId));
+        }
+      } else if (role === "QC") {
+        setActive("Production");
+      } else {
+        setActive("Master");
+      }
     } catch {
       /* Local preview remains usable while the API is offline. */
     }
@@ -1285,12 +1399,19 @@ function App() {
           </div>
         </div>
         <div className="status">
-          <span /> Admin session{" "}
+          <span /> {currentUserRole === "Production" ? `Production — ${currentUserDeptName ?? currentUsername}` : currentUserRole === "QC" ? "QC Panel" : "Admin session"}{" "}
           <button
             className="link-button"
             onClick={() => {
               setApiToken("");
               setLoggedIn(false);
+              setUserName("");
+              setPassword("");
+              setCurrentUserRole("Admin");
+              setCurrentUserDeptId(null);
+              setCurrentUserDeptName(null);
+              setCurrentUsername("");
+              setActive("Master");
             }}
           >
             Sign out
@@ -1298,7 +1419,7 @@ function App() {
         </div>
       </header>
       <nav>
-        {menu.map((item) => (
+        {roleMenu.map((item) => (
           <button
             key={item}
             className={active === item ? "active" : ""}
@@ -1703,7 +1824,7 @@ function App() {
             <div className="workspace"><section className="master-panel production-panel">
               <form className="production-form" onSubmit={addLabelsToStock}>
                 <div><p className="form-kicker">PENDING LABELS</p><h2>Add completed production to stock</h2></div>
-                <label>Department<select value={productionDepartmentId} onChange={(event) => { setProductionDepartmentId(event.target.value); setStockDraft({ ...stockDraft, fromBarcode: "", toBarcode: "" }); }}><option value="">All departments</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
+                <label>Department{currentUserRole === "Production" ? <input type="text" readOnly value={currentUserDeptName || (currentUserDeptId ? `Department #${currentUserDeptId}` : "My Department")} style={{ background: "#f3f4f6", cursor: "not-allowed" }} /> : <select value={productionDepartmentId} onChange={(event) => { setProductionDepartmentId(event.target.value); setStockDraft({ ...stockDraft, fromBarcode: "", toBarcode: "" }); }}><option value="">All departments</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select>}</label>
                 <label>Batch No.<div className="item-picker"><input value={stockDraft.batchNumber} onChange={(event) => { setStockDraft({ ...stockDraft, batchNumber: event.target.value }); setIsStockBatchOpen(true); }} onFocus={() => setIsStockBatchOpen(true)} onBlur={() => window.setTimeout(() => setIsStockBatchOpen(false), 120)} placeholder="Enter batch number or select old batch" role="combobox" aria-expanded={isStockBatchOpen} />{isStockBatchOpen && <div className="item-picker-options" role="listbox">{(() => { const knownProduction = Array.from(new Set([...batchOptions, ...batchReportRows.map((row) => row.batchNumber), ...inventorySummaryRows.map((row) => row.batchNumber), ...boxDetailRows.map((row) => row.batchNumber)])); const query = stockDraft.batchNumber.trim().toLowerCase(); const filtered = knownProduction.filter((batch) => !query || batch.toLowerCase().includes(query)); return (<>{filtered.map((batch) => <button key={batch} type="button" role="option" onMouseDown={(event) => event.preventDefault()} onClick={() => { setStockDraft({ ...stockDraft, batchNumber: batch }); setIsStockBatchOpen(false); }}><strong>{batch}</strong><span>Batch {batch}</span></button>)}{filtered.length === 0 && <p>{knownProduction.length === 0 ? "No old batches yet - type a new batch number." : "No matching batches - press Add to stock to create it."}</p>}</>); })()}</div>}</div></label>
                 <label>Start box<span className="field-hint">Barcode</span><input value={stockDraft.fromBarcode} onChange={(event) => setStockDraft({ ...stockDraft, fromBarcode: event.target.value })} placeholder="Select from list" /></label>
                 <label>End box<span className="field-hint">Barcode</span><input value={stockDraft.toBarcode} onChange={(event) => setStockDraft({ ...stockDraft, toBarcode: event.target.value })} placeholder="Select from list" /></label>
@@ -1721,7 +1842,9 @@ function App() {
             <div className="workspace">
               <div className="workspace-tabs">
                 <button className={labelTab === "print" ? "selected" : ""} onClick={() => setLabelTab("print")}>Print label</button>
-                <button className={labelTab === "duplicate" ? "selected" : ""} onClick={() => setLabelTab("duplicate")}>Print duplicate label</button>
+                {currentUserRole !== "QC" && (
+                  <button className={labelTab === "duplicate" ? "selected" : ""} onClick={() => setLabelTab("duplicate")}>Print duplicate label</button>
+                )}
               </div>
               {labelTab === "print" ? (
                 <section className="master-panel label-panel">
@@ -1930,28 +2053,26 @@ function App() {
                         </button>
                       </div>
 
-                      {barcodeMode === "tsc" && (
-                        <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
-                          <button
-                            type="button"
-                            className={tscSubTab === "settings" ? "primary" : "secondary"}
-                            onClick={() => setTscSubTab("settings")}
-                            style={{ fontSize: "12px", padding: "6px 12px" }}
-                          >
-                            TSC Printer Connection
-                          </button>
-                          <button
-                            type="button"
-                            className={tscSubTab === "editor" ? "primary" : "secondary"}
-                            onClick={() => setTscSubTab("editor")}
-                            style={{ fontSize: "12px", padding: "6px 12px" }}
-                          >
-                            🎨 Barcode Label Template Editor
-                          </button>
-                        </div>
-                      )}
+                      <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+                        <button
+                          type="button"
+                          className={tscSubTab === "settings" ? "primary" : "secondary"}
+                          onClick={() => setTscSubTab("settings")}
+                          style={{ fontSize: "12px", padding: "6px 12px" }}
+                        >
+                          {barcodeMode === "tsc" ? "TSC Connection & Config" : "Laser Connection & A4 Grid"}
+                        </button>
+                        <button
+                          type="button"
+                          className={tscSubTab === "editor" ? "primary" : "secondary"}
+                          onClick={() => setTscSubTab("editor")}
+                          style={{ fontSize: "12px", padding: "6px 12px" }}
+                        >
+                          🎨 Visual Label Template Editor
+                        </button>
+                      </div>
 
-                      {barcodeMode === "tsc" && tscSubTab === "editor" ? (
+                      {tscSubTab === "editor" ? (
                         <TscLabelEditor
                           apiUrl={apiUrl}
                           apiToken={apiToken}
@@ -1969,9 +2090,13 @@ function App() {
                               <span className="printer-current-name">
                                 {printerConfig.barcodePrinter?.printerName ?? "Not configured"}
                               </span>
-                              {barcodeMode === "tsc" && (
+                              {barcodeMode === "tsc" ? (
                                 <span style={{ fontSize: "11px", color: "#008060", display: "block", marginTop: "2px" }}>
                                   Target: {printerConfig.barcodePrinter?.model || "TSC TTP-247"} (203 DPI, 1mm = 8 dots)
+                                </span>
+                              ) : (
+                                <span style={{ fontSize: "11px", color: "#2563eb", display: "block", marginTop: "2px" }}>
+                                  Multi-label A4 Sheet Compositor (tiled vector GDI+ output)
                                 </span>
                               )}
                             </div>
@@ -2007,14 +2132,85 @@ function App() {
                               </select>
                             </label>
 
-                            <div className="printer-card-actions" style={{ marginTop: "12px" }}>
+                            {barcodeMode === "laser" && (
+                              <div className="laser-a4-settings-panel" style={{ marginTop: "16px", padding: "16px", background: "#f8fafc", border: "1px solid #cbd5e1", borderRadius: "8px" }}>
+                                <h4 style={{ margin: "0 0 6px 0", fontSize: "14px", color: "#1e293b", fontWeight: 600 }}>📄 Laser A4 Sheet &amp; Multi-Label Grid Settings</h4>
+                                <p style={{ margin: "0 0 16px 0", fontSize: "12px", color: "#64748b" }}>
+                                  Labels are tiled across each A4 sheet according to these margins and gaps. It will NOT print 1 label per page.
+                                </p>
+
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "12px", marginBottom: "16px" }}>
+                                  <label style={{ fontSize: "12px" }}>
+                                    Paper Size
+                                    <select value={laserPaperSize} onChange={(e) => {
+                                      setLaserPaperSize(e.target.value);
+                                      if (e.target.value === "A4") { setLaserPaperWidthMm(210); setLaserPaperHeightMm(297); }
+                                      else if (e.target.value === "Letter") { setLaserPaperWidthMm(216); setLaserPaperHeightMm(279); }
+                                    }}>
+                                      <option value="A4">A4 (210 × 297 mm)</option>
+                                      <option value="Letter">Letter (216 × 279 mm)</option>
+                                      <option value="Custom">Custom size</option>
+                                    </select>
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    Paper Width (mm)
+                                    <input type="number" step="0.5" value={laserPaperWidthMm} onChange={(e) => setLaserPaperWidthMm(Number(e.target.value))} />
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    Paper Height (mm)
+                                    <input type="number" step="0.5" value={laserPaperHeightMm} onChange={(e) => setLaserPaperHeightMm(Number(e.target.value))} />
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    Margin Left (mm)
+                                    <input type="number" step="0.5" value={laserMarginLeftMm} onChange={(e) => setLaserMarginLeftMm(Number(e.target.value))} />
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    Margin Right (mm)
+                                    <input type="number" step="0.5" value={laserMarginRightMm} onChange={(e) => setLaserMarginRightMm(Number(e.target.value))} />
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    Margin Top (mm)
+                                    <input type="number" step="0.5" value={laserMarginTopMm} onChange={(e) => setLaserMarginTopMm(Number(e.target.value))} />
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    Margin Bottom (mm)
+                                    <input type="number" step="0.5" value={laserMarginBottomMm} onChange={(e) => setLaserMarginBottomMm(Number(e.target.value))} />
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    H-Gap (mm)
+                                    <input type="number" step="0.5" value={laserGapXMm} onChange={(e) => setLaserGapXMm(Number(e.target.value))} />
+                                  </label>
+                                  <label style={{ fontSize: "12px" }}>
+                                    V-Gap (mm)
+                                    <input type="number" step="0.5" value={laserGapYMm} onChange={(e) => setLaserGapYMm(Number(e.target.value))} />
+                                  </label>
+                                </div>
+
+                                <div style={{ background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: "6px", padding: "12px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: "10px", alignItems: "center" }}>
+                                  <div>
+                                    <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", display: "block" }}>Usable Area</span>
+                                    <strong style={{ fontSize: "13px", color: "#0f172a" }}>{laserCalculations.usableW} × {laserCalculations.usableH} mm</strong>
+                                  </div>
+                                  <div>
+                                    <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", display: "block" }}>Grid Layout</span>
+                                    <strong style={{ fontSize: "13px", color: "#0f172a" }}>{laserCalculations.cols} cols × {laserCalculations.rows} rows</strong>
+                                  </div>
+                                  <div>
+                                    <span style={{ fontSize: "10px", color: "#64748b", textTransform: "uppercase", display: "block" }}>Capacity / Sheet</span>
+                                    <strong style={{ fontSize: "14px", color: "#16a34a" }}>⭐ {laserCalculations.perPage} labels/page</strong>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="printer-card-actions" style={{ marginTop: "16px" }}>
                               <button
                                 type="button"
                                 className="primary"
                                 disabled={!selectedBarcodePrinter || savingPrinter}
                                 onClick={() => savePrinterConfig("barcode")}
                               >
-                                {savingPrinter ? "Saving..." : `Save ${barcodeMode === "tsc" ? "TSC" : "Laser"} Printer`}
+                                {savingPrinter ? "Saving..." : `Save ${barcodeMode === "tsc" ? "TSC" : "Laser"} Printer & Settings`}
                               </button>
                               <button
                                 type="button"
@@ -2022,7 +2218,7 @@ function App() {
                                 disabled={!printerConfig.barcodePrinter || testingPrinter}
                                 onClick={() => runTestPrint("Barcode")}
                               >
-                                {testingPrinter ? "Sending barcode..." : `Test Barcode (${barcodeMode === "tsc" ? "TSPL RAW" : "Laser"})`}
+                                {testingPrinter ? "Sending barcode..." : `Test Barcode (${barcodeMode === "tsc" ? "TSPL RAW" : "Laser A4 Grid"})`}
                               </button>
                             </div>
                           </div>
@@ -2078,6 +2274,80 @@ function App() {
                   </div>
                 </div>
               )}
+            </div>
+          </>
+        ) : active === "User" ? (
+          <>
+            <div className="content-heading">
+              <div>
+                <p className="eyebrow">ADMINISTRATION / ACCESS CONTROL</p>
+                <h1>User accounts &amp; authentication</h1>
+              </div>
+              <span className="date">ACCESS DESK</span>
+            </div>
+            <div className="workspace">
+              <div className="master-panel">
+                <div className="table-toolbar" style={{ paddingTop: 0, paddingBottom: "20px" }}>
+                  <div>
+                    <h2>Configured user accounts</h2>
+                    <p>System users configured for Admin, QC, and Department-scoped Production access.</p>
+                  </div>
+                  <div className="toolbar-actions">
+                    <button className="secondary" onClick={loadUserAccounts} disabled={loadingUsers}>
+                      {loadingUsers ? "Refreshing..." : "Refresh users"}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ background: "#fff7ed", border: "1px solid #fdba74", padding: "12px 16px", borderRadius: "6px", marginBottom: "20px" }}>
+                  <strong style={{ color: "#c2410c", display: "block", marginBottom: "4px" }}>
+                    DEVELOPMENT ONLY — TEMPORARY PASSWORDS DISPLAYED (MUST BE REMOVED BEFORE PRODUCTION)
+                  </strong>
+                  <span style={{ fontSize: "13px", color: "#9a3412" }}>
+                    The passwords below are development/test defaults. They are visible only to logged-in Administrators on this PC and MUST BE REMOVED before production deployment.
+                  </span>
+                </div>
+
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Assigned Department</th>
+                        <th>Temporary Dev Password</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userAccounts.map((u) => (
+                        <tr key={u.id}>
+                          <td className="strong-cell"><code>{u.username}</code></td>
+                          <td>
+                            <span className={`printer-badge ${u.role === "Admin" ? "badge-ready" : u.role === "QC" ? "badge-default" : "badge-ready"}`}>
+                              {u.role}
+                            </span>
+                          </td>
+                          <td>{u.departmentName ? <strong>{u.departmentName}</strong> : <span style={{ color: "#888" }}>All / Global</span>}</td>
+                          <td>
+                            <code style={{ background: "#fef3c7", padding: "2px 8px", borderRadius: "4px", color: "#92400e", fontWeight: 600 }}>
+                              {u.temporaryDevPassword ?? "—"}
+                            </code>
+                          </td>
+                          <td>
+                            <span className="printer-badge badge-ready">{u.isActive ? "Active" : "Inactive"}</span>
+                          </td>
+                          <td>{new Date(u.createdAt).toLocaleDateString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {userAccounts.length === 0 && !loadingUsers && (
+                    <p className="no-results">No user accounts found.</p>
+                  )}
+                </div>
+              </div>
             </div>
           </>
         ) : (

@@ -5,20 +5,24 @@ using Microsoft.AspNetCore.Mvc;
 namespace BoxTrack.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+[Authorize]
 [Route("api/departments")]
 public sealed class DepartmentController(IDepartmentCatalog catalog) : ControllerBase
 {
     [HttpGet]
+    [Authorize(Roles = "Admin,Production,QC")]
     public async Task<ActionResult<Page<DepartmentRow>>> List(string? search, int page = 1, int pageSize = 100, CancellationToken cancellationToken = default) => Ok(await catalog.ListAsync(search, page, pageSize, cancellationToken));
 
     [HttpPost]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<DepartmentRow>> Create(DepartmentInput input, CancellationToken cancellationToken) => await ExecuteAsync(() => catalog.CreateAsync(input, User.Identity?.Name, cancellationToken));
 
     [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult<DepartmentRow>> Update(int id, DepartmentInput input, CancellationToken cancellationToken) => await ExecuteAsync(() => catalog.UpdateAsync(id, input, User.Identity?.Name, cancellationToken));
 
     [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]
     public async Task<ActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         try { await catalog.DeleteAsync(id, User.Identity?.Name, cancellationToken); return NoContent(); }

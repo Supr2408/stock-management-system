@@ -34,6 +34,14 @@ builder.Services.AddDbContext<BoxTrackDbContext>(options => options.UseNpgsql(bu
 builder.Services.AddScoped<IItemCatalog, ItemCatalogService>();
 builder.Services.AddScoped<IDepartmentCatalog, DepartmentCatalogService>();
 builder.Services.AddScoped<ICustomerCatalog, CustomerCatalogService>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
+builder.Services.AddScoped<LaserA4LabelCompositor>(provider =>
+{
+    var logger = provider.GetRequiredService<ILogger<LaserA4LabelCompositor>>();
+    return new LaserA4LabelCompositor(Path.Combine(projectRoot, "barcode"), logger);
+});
+builder.Services.AddScoped<ILaserLabelCompositor>(p => p.GetRequiredService<LaserA4LabelCompositor>());
 builder.Services.AddScoped<IPrinterDiscoveryService, WindowsPrinterDiscoveryService>();
 builder.Services.AddScoped<IPrintService, WindowsPrintService>();
 builder.Services.AddScoped<IPrinterCatalog, PrinterCatalogService>();

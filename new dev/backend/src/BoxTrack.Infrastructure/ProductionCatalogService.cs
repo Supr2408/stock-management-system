@@ -5,13 +5,20 @@ using Microsoft.EntityFrameworkCore;
 
 namespace BoxTrack.Infrastructure;
 
-public sealed class ProductionCatalogService(BoxTrackDbContext db) : IProductionCatalog
+public sealed class ProductionCatalogService(BoxTrackDbContext db, ICurrentUserService currentUser) : IProductionCatalog
 {
     public async Task<Page<PendingProductionLabelRow>> ListPendingAsync(int? departmentId, int? manufactureYear, int? manufactureMonth, string? search, int page, int pageSize, CancellationToken cancellationToken)
     {
+        // Enforce department scoping for Production users (override whatever frontend passed)
+        int? effectiveDeptId = departmentId;
+        if (currentUser.IsProduction && currentUser.DepartmentId.HasValue)
+        {
+            effectiveDeptId = currentUser.DepartmentId.Value;
+        }
+
         var query = db.BarcodeLabels.AsNoTracking().Include(label => label.Item).ThenInclude(item => item!.Department)
             .Where(label => label.ProductionStatus == "PendingProduction");
-        if (departmentId.HasValue) query = query.Where(label => label.Item!.DepartmentId == departmentId.Value);
+        if (effectiveDeptId.HasValue) query = query.Where(label => label.Item!.DepartmentId == effectiveDeptId.Value);
         if (manufactureYear.HasValue && manufactureMonth.HasValue)
             query = query.Where(label => label.ManufactureDate.Year == manufactureYear.Value && label.ManufactureDate.Month == manufactureMonth.Value);
         if (!string.IsNullOrWhiteSpace(search))
@@ -38,11 +45,22 @@ public sealed class ProductionCatalogService(BoxTrackDbContext db) : IProduction
         if (string.CompareOrdinal(fromBarcode, toBarcode) > 0) throw new InvalidOperationException("Start barcode must be before or equal to end barcode.");
 
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-        var labels = await db.BarcodeLabels.Where(label => label.BarcodeValue.CompareTo(fromBarcode) >= 0 && label.BarcodeValue.CompareTo(toBarcode) <= 0)
+        var labels = await db.BarcodeLabels.Include(l => l.Item)
+            .Where(label => label.BarcodeValue.CompareTo(fromBarcode) >= 0 && label.BarcodeValue.CompareTo(toBarcode) <= 0)
             .OrderBy(label => label.BarcodeValue).ToListAsync(cancellationToken);
         if (labels.Count == 0) throw new InvalidOperationException("No generated labels were found in this range.");
         if (labels.Any(label => label.ProductionStatus != "PendingProduction")) throw new InvalidOperationException("This range includes labels that were already added to stock.");
         if (labels.Select(label => label.ItemId).Distinct().Count() != 1) throw new InvalidOperationException("A stock range must belong to one item.");
+
+        // Enforce department scoping for Production users
+        if (currentUser.IsProduction && currentUser.DepartmentId.HasValue)
+        {
+            var itemDeptId = labels[0].Item?.DepartmentId;
+            if (itemDeptId != currentUser.DepartmentId.Value)
+            {
+                throw new InvalidOperationException("You are only authorized to add stock for your assigned department.");
+            }
+        }
 
         var receipt = new StockReceipt { ItemId = labels[0].ItemId, BatchNumber = batchNumber, FromBarcode = fromBarcode, ToBarcode = toBarcode, Quantity = labels.Count, CreatedBy = userId };
         db.StockReceipts.Add(receipt);
