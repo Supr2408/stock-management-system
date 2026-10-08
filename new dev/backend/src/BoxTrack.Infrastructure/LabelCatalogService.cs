@@ -42,10 +42,93 @@ public sealed class LabelCatalogService(BoxTrackDbContext db, string barcodeRoot
         var item = await db.Items.Include(value => value.Department).SingleOrDefaultAsync(value => value.Id == input.ItemId && value.IsActive, cancellationToken) ?? throw new InvalidOperationException("Select a valid item from Item Master.");
         if (item.Code is < 101 or > 999) throw new InvalidOperationException("Item code must be a 3 digit value between 101 and 999.");
 
-        var logoMode = NormalizeLogoMode(input.LogoMode);
+        LabelTemplate? selectedTemplate = null;
+        if (input.TemplateId.HasValue && input.TemplateId.Value > 0)
+        {
+            selectedTemplate = await db.LabelTemplates
+                .Include(t => t.Elements)
+                .ThenInclude(e => e.Logo)
+                .FirstOrDefaultAsync(t => t.Id == input.TemplateId.Value && t.IsActive, cancellationToken);
+        }
+
+        if (selectedTemplate == null)
+        {
+            var printerCfg = await db.PrinterConfigurations
+                .Include(c => c.ActiveTemplate)
+                .ThenInclude(t => t!.Elements)
+                .ThenInclude(e => e.Logo)
+                .FirstOrDefaultAsync(c => c.Category == PrinterCategory.Barcode && c.IsActive, cancellationToken);
+            selectedTemplate = printerCfg?.ActiveTemplate;
+        }
+
+        if (selectedTemplate == null)
+        {
+            selectedTemplate = await db.LabelTemplates
+                .Include(t => t.Elements)
+                .ThenInclude(e => e.Logo)
+                .Where(t => t.IsActive)
+                .OrderByDescending(t => t.IsDefault)
+                .ThenByDescending(t => t.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+        }
+
+        string logoMode = "Nagreeka";
         LabelLogo? logo = null;
-        if (logoMode == "Custom")
-            logo = await db.LabelLogos.SingleOrDefaultAsync(value => value.Id == input.LabelLogoId && value.IsActive, cancellationToken) ?? throw new InvalidOperationException("Select a valid uploaded logo.");
+
+        if (selectedTemplate != null)
+        {
+            var logoEl = selectedTemplate.Elements.FirstOrDefault(e => e.ElementType == TemplateElementType.Logo);
+            if (logoEl != null)
+            {
+                if (logoEl.Logo != null)
+                {
+                    logo = logoEl.Logo;
+                    logoMode = "Custom";
+                }
+                else if (logoEl.LogoId.HasValue)
+                {
+                    logo = await db.LabelLogos.FirstOrDefaultAsync(l => l.Id == logoEl.LogoId.Value && l.IsActive, cancellationToken);
+                    logoMode = logo != null ? "Custom" : "Nagreeka";
+                }
+                else if (!string.IsNullOrWhiteSpace(logoEl.Content))
+                {
+                    var ext = Path.GetExtension(logoEl.Content).ToLowerInvariant();
+                    if (ext is ".png" or ".jpg" or ".jpeg" or ".svg" or ".webp")
+                    {
+                        logo = await db.LabelLogos.FirstOrDefaultAsync(l => l.FileName == logoEl.Content && l.IsActive, cancellationToken);
+                        if (logo == null && File.Exists(Path.Combine(barcodeRoot, "logos", Path.GetFileName(logoEl.Content))))
+                        {
+                            logo = new LabelLogo { Name = Path.GetFileNameWithoutExtension(logoEl.Content), FileName = Path.GetFileName(logoEl.Content), RelativePath = Path.Combine("barcode", "logos", Path.GetFileName(logoEl.Content)).Replace('\\', '/'), ContentType = "image/png" };
+                        }
+                        logoMode = "Custom";
+                    }
+                    else if (string.Equals(logoEl.Content, "WithALUFO", StringComparison.OrdinalIgnoreCase))
+                    {
+                        logoMode = "WithALUFO";
+                    }
+                    else
+                    {
+                        logoMode = "Nagreeka";
+                    }
+                }
+                else
+                {
+                    logoMode = "Nagreeka";
+                }
+            }
+            else
+            {
+                logoMode = "WithoutLogo";
+            }
+        }
+        else
+        {
+            logoMode = NormalizeLogoMode(input.LogoMode);
+            if (logoMode == "Custom" && input.LabelLogoId.HasValue)
+            {
+                logo = await db.LabelLogos.SingleOrDefaultAsync(value => value.Id == input.LabelLogoId && value.IsActive, cancellationToken);
+            }
+        }
 
         Directory.CreateDirectory(barcodeRoot);
         var labelsDirectory = Path.Combine(barcodeRoot, "labels");

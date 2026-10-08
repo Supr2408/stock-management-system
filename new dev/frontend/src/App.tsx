@@ -322,7 +322,7 @@ function App() {
   const [itemSearch, setItemSearch] = useState({ name: "", departmentId: "" });
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerDraft, setCustomerDraft] = useState<Customer>({ id: 0, name: "", address1: "", address2: "", city: "", pincode: "", state: "", country: "" });
-  const [labelDraft, setLabelDraft] = useState({ departmentId: "", itemId: "", manufactureDate: new Date().toISOString().slice(0, 10), quantity: "1", logoMode: "Nagreeka", labelLogoId: "", templateId: "" });
+  const [labelDraft, setLabelDraft] = useState({ departmentId: "", itemId: "", manufactureDate: new Date().toISOString().slice(0, 10), quantity: "1", templateId: "" });
   const [labelLogos, setLabelLogos] = useState<LabelLogo[]>([]);
   const [labelRange, setLabelRange] = useState({ from: "", to: "" });
   const [logoUpload, setLogoUpload] = useState({ name: "", file: null as File | null });
@@ -540,7 +540,14 @@ function App() {
     if (!apiToken) return;
     fetch(`${apiUrl}/api/label-templates`, { headers: { Authorization: `Bearer ${apiToken}` } })
       .then((res) => (res.ok ? res.json() : []))
-      .then((tpls: LabelTemplate[]) => setLabelTemplates(tpls))
+      .then((tpls: LabelTemplate[]) => {
+        setLabelTemplates(tpls);
+        setLabelDraft((prev) => {
+          if (prev.templateId && tpls.some((t) => String(t.id) === prev.templateId)) return prev;
+          const defaultTpl = tpls.find((t) => t.isDefault) || tpls[0];
+          return defaultTpl ? { ...prev, templateId: String(defaultTpl.id) } : prev;
+        });
+      })
       .catch((err) => console.error("Failed to load label templates:", err));
   }
 
@@ -558,6 +565,15 @@ function App() {
         setAvailablePrinters(printers);
         setPrinterConfig(config);
         setLabelTemplates(tpls);
+        if (tpls && tpls.length > 0) {
+          setLabelDraft((prev) => {
+            if (prev.templateId && tpls.some((t) => String(t.id) === prev.templateId)) return prev;
+            const target = (config.barcodePrinter?.activeTemplateId && tpls.find((t) => t.id === config.barcodePrinter!.activeTemplateId))
+              || tpls.find((t) => t.isDefault)
+              || tpls[0];
+            return target ? { ...prev, templateId: String(target.id) } : prev;
+          });
+        }
         if (config.regularDocumentPrinter?.printerName) {
           setSelectedRegularPrinter(config.regularDocumentPrinter.printerName);
         }
@@ -1112,7 +1128,6 @@ function App() {
     if (!response.ok) { notify(body.message ?? "Logo upload failed."); return; }
     const uploadedLogo = body as LabelLogo;
     setLabelLogos([...labelLogos, uploadedLogo]);
-    setLabelDraft({ ...labelDraft, logoMode: "Custom", labelLogoId: String(uploadedLogo.id) });
     setLogoUpload({ name: "", file: null });
     setIsLogoDialogOpen(false);
     notify("Logo uploaded.");
@@ -1123,7 +1138,7 @@ function App() {
     if (!apiToken) { notify("Sign in with the API online before generating labels."); return; }
     const quantity = Number(labelDraft.quantity);
     if (!labelDraft.itemId || !labelDraft.manufactureDate || !Number.isInteger(quantity) || quantity <= 0) { notify("Select item, date, and a valid quantity."); return; }
-    if (labelDraft.logoMode === "Custom" && !labelDraft.labelLogoId) { notify("Select an uploaded logo for the custom logo mode."); return; }
+    if (!labelDraft.templateId) { notify("Please select a Label Template to generate and print."); return; }
     const response = await fetch(`${apiUrl}/api/labels/generate`, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
@@ -1131,9 +1146,7 @@ function App() {
         itemId: Number(labelDraft.itemId),
         manufactureDate: labelDraft.manufactureDate,
         quantity,
-        logoMode: labelDraft.logoMode,
-        labelLogoId: labelDraft.labelLogoId ? Number(labelDraft.labelLogoId) : null,
-        templateId: labelDraft.templateId ? Number(labelDraft.templateId) : null
+        templateId: Number(labelDraft.templateId)
       }),
     });
     const body = await response.json().catch(() => ({}));
@@ -1892,21 +1905,46 @@ function App() {
                 <section className="master-panel label-panel">
                   <form className="label-form" onSubmit={generateLabels}>
                     <div><p className="form-kicker">LABEL RECORD</p><h2>Print label</h2></div>
-                    <label>Logo type<select value={labelDraft.logoMode} onChange={(event) => { const logoMode = event.target.value; setLabelDraft({ ...labelDraft, logoMode, labelLogoId: logoMode === "Custom" ? labelDraft.labelLogoId : "" }); if (logoMode === "Custom") setIsLogoDialogOpen(true); }}><option value="Nagreeka">Nagreeka</option><option value="WithALUFO">With ALUFO</option><option value="WithoutLogo">Without Logo</option><option value="Custom">Uploaded Logo</option></select></label>
-                    <label>Label template<select value={labelDraft.templateId} onChange={(event) => setLabelDraft({ ...labelDraft, templateId: event.target.value })}><option value="">Auto / Default Template</option>{labelTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} ({template.widthMm} × {template.heightMm} mm){template.isDefault ? " [Default]" : ""}</option>)}</select></label>
+                    <label className="wide-field" style={{ gridColumn: "span 2" }}>
+                      Label Template
+                      <select
+                        value={labelDraft.templateId}
+                        onChange={(event) => setLabelDraft({ ...labelDraft, templateId: event.target.value })}
+                        required
+                      >
+                        <option value="">-- Select Label Template --</option>
+                        {labelTemplates.map((template) => (
+                          <option key={template.id} value={template.id}>
+                            {template.name} ({template.widthMm} × {template.heightMm} mm){template.isDefault ? " [Default]" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <label>Department<select value={labelDraft.departmentId} onChange={(event) => { setLabelDraft({ ...labelDraft, departmentId: event.target.value, itemId: "" }); setLabelItemPicker(""); setIsItemPickerOpen(false); }}><option value="">All departments</option>{departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}</select></label>
                     <label className="wide-field">Item<div className="item-picker"><input value={labelItemPicker} placeholder="Type item ID or name" role="combobox" aria-expanded={isItemPickerOpen} aria-controls="label-item-options" onFocus={() => setIsItemPickerOpen(true)} onBlur={() => window.setTimeout(() => setIsItemPickerOpen(false), 120)} onChange={(event) => { setLabelItemPicker(event.target.value); setLabelDraft({ ...labelDraft, itemId: "" }); setIsItemPickerOpen(true); }} />{isItemPickerOpen && <div className="item-picker-options" id="label-item-options" role="listbox">{labelPickerItems.length > 0 ? labelPickerItems.map((item) => <button key={item.id} type="button" role="option" aria-selected={String(item.id) === labelDraft.itemId} onMouseDown={(event) => event.preventDefault()} onClick={() => { setLabelDraft({ ...labelDraft, itemId: String(item.id), departmentId: String(item.departmentId) }); setLabelItemPicker(`${item.code} - ${item.name}`); setIsItemPickerOpen(false); }}><strong>{item.code}</strong><span>{item.name}</span></button>) : <p>No matching items.</p>}</div>}</div></label>
                     <label>MFG Date<input type="date" value={labelDraft.manufactureDate} onChange={(event) => setLabelDraft({ ...labelDraft, manufactureDate: event.target.value })} /></label>
                     <label>Qty<input type="number" min="1" max="500" step="1" value={labelDraft.quantity} onChange={(event) => setLabelDraft({ ...labelDraft, quantity: event.target.value })} /></label>
-                    {labelDraft.logoMode === "Custom" && <div className="selected-logo"><span>Selected logo</span><strong>{labelLogos.find((logo) => String(logo.id) === labelDraft.labelLogoId)?.name ?? "Choose from the logo window"}</strong><button type="button" className="text-action" onClick={() => setIsLogoDialogOpen(true)}>Change</button></div>}
-                    {labelDraft.templateId && (() => {
+                    {(() => {
                       const chosenTpl = labelTemplates.find((t) => String(t.id) === labelDraft.templateId);
                       if (!chosenTpl) return null;
+                      const logoEl = chosenTpl.elements.find((e) => e.elementType === 1);
                       const is32Up = chosenTpl.widthMm <= 55 && chosenTpl.heightMm <= 35;
+                      const logoDesc = logoEl ? (logoEl.logoName || logoEl.content || "Custom Logo") : "None";
                       return (
-                        <div className="selected-logo" style={{ gridColumn: "1 / -1", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "6px 12px", borderRadius: "6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: "12px", color: "#166534" }}>Selected Template: <strong>{chosenTpl.name}</strong> ({chosenTpl.widthMm} × {chosenTpl.heightMm} mm)</span>
-                          <span style={{ fontSize: "12px", fontWeight: 600, color: "#15803d" }}>{is32Up ? "⭐ Dynamic A4 Layout: 32 labels/page (4 cols × 8 rows)" : `Layout: ${chosenTpl.widthMm}×${chosenTpl.heightMm} mm`}</span>
+                        <div style={{ gridColumn: "1 / -1", background: "#f0fdf4", border: "1px solid #bbf7d0", padding: "10px 14px", borderRadius: "8px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" }}>
+                          <div>
+                            <span style={{ fontSize: "11px", color: "#166534", textTransform: "uppercase", fontWeight: 700, display: "block" }}>Active Label Layout</span>
+                            <strong style={{ fontSize: "14px", color: "#14532d" }}>{chosenTpl.name}</strong>
+                            <span style={{ fontSize: "12px", color: "#15803d", marginLeft: "8px" }}>({chosenTpl.widthMm} × {chosenTpl.heightMm} mm)</span>
+                          </div>
+                          <div style={{ display: "flex", gap: "12px", alignItems: "center", fontSize: "12px" }}>
+                            <span style={{ color: "#166534" }}>
+                              Template Logo: <strong>{logoDesc}</strong>
+                            </span>
+                            <span style={{ background: "#dcfce7", color: "#15803d", padding: "3px 8px", borderRadius: "4px", fontWeight: 600 }}>
+                              {is32Up ? "⭐ Dynamic A4 Layout: 32 labels/page (4 cols × 8 rows)" : `Layout: ${chosenTpl.widthMm}×${chosenTpl.heightMm} mm`}
+                            </span>
+                          </div>
                         </div>
                       );
                     })()}
@@ -2525,9 +2563,9 @@ function App() {
               <div><p className="form-kicker">LABEL LOGO</p><h2 id="logo-dialog-title">Choose or upload logo</h2></div>
               <button className="dialog-close" type="button" onClick={() => setIsLogoDialogOpen(false)} aria-label="Close logo selection">X</button>
             </div>
-            <label className="dialog-field">Available logos<select value={labelDraft.labelLogoId} onChange={(event) => setLabelDraft({ ...labelDraft, labelLogoId: event.target.value })}><option value="">Select uploaded logo</option>{labelLogos.map((logo) => <option key={logo.id} value={logo.id}>{logo.name}</option>)}</select></label>
+            <label className="dialog-field">Available logos<select defaultValue=""><option value="">Uploaded logos</option>{labelLogos.map((logo) => <option key={logo.id} value={logo.id}>{logo.name}</option>)}</select></label>
             {labelLogos.length === 0 && <p className="dialog-summary">No uploaded logos are available yet. Add one below.</p>}
-            <div className="dialog-actions"><button type="button" className="secondary" onClick={() => setIsLogoDialogOpen(false)}>Use selected logo</button></div>
+            <div className="dialog-actions"><button type="button" className="secondary" onClick={() => setIsLogoDialogOpen(false)}>Close</button></div>
             <form className="dialog-upload-form" onSubmit={uploadLabelLogo}>
               <p className="form-kicker">ADMIN UPLOAD</p>
               <label>Logo name<input value={logoUpload.name} onChange={(event) => setLogoUpload({ ...logoUpload, name: event.target.value })} placeholder="e.g. Nagreeka new" /></label>

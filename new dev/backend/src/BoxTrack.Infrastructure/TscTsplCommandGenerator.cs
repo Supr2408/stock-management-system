@@ -63,48 +63,65 @@ public sealed class TscTsplCommandGenerator(
                     break;
 
                 case TemplateElementType.Logo:
-                    if (element.Logo != null || element.LogoId.HasValue)
+                    string? logoFileName = element.Logo?.FileName;
+                    if (string.IsNullOrWhiteSpace(logoFileName) && !string.IsNullOrWhiteSpace(element.Content))
                     {
-                        var logoFileName = element.Logo?.FileName;
-                        if (string.IsNullOrWhiteSpace(logoFileName) && !string.IsNullOrWhiteSpace(element.Content))
+                        var ext = Path.GetExtension(element.Content).ToLowerInvariant();
+                        if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".webp" or ".svg")
                         {
                             logoFileName = element.Content;
                         }
+                    }
+                    if (string.IsNullOrWhiteSpace(logoFileName) && dynamicValues.TryGetValue("LogoFileName", out var lfn) && !string.IsNullOrWhiteSpace(lfn))
+                    {
+                        logoFileName = lfn;
+                    }
 
-                        if (!string.IsNullOrWhiteSpace(logoFileName))
+                    if (!string.IsNullOrWhiteSpace(logoFileName))
+                    {
+                        var cleanLogoName = Path.GetFileName(logoFileName);
+                        var logoPath = Path.Combine(barcodeRoot, "logos", cleanLogoName);
+                        if (!File.Exists(logoPath))
                         {
-                            var cleanLogoName = Path.GetFileName(logoFileName);
-                            var logoPath = Path.Combine(barcodeRoot, "logos", cleanLogoName);
-                            if (!File.Exists(logoPath))
+                            logoPath = Path.Combine(barcodeRoot, logoFileName.TrimStart('/', '\\'));
+                        }
+                        if (File.Exists(logoPath))
+                        {
+                            try
                             {
-                                logoPath = Path.Combine(barcodeRoot, logoFileName.TrimStart('/', '\\'));
-                            }
-                            if (File.Exists(logoPath))
-                            {
-                                try
-                                {
-                                    await using var stream = File.OpenRead(logoPath);
-                                    var processed = await imageProcessor.ProcessLogoForThermalPrintAsync(
-                                        stream,
-                                        element.WidthMm,
-                                        element.HeightMm,
-                                        element.FitMode,
-                                        Dpi,
-                                        cancellationToken);
+                                await using var stream = File.OpenRead(logoPath);
+                                var processed = await imageProcessor.ProcessLogoForThermalPrintAsync(
+                                    stream,
+                                    element.WidthMm,
+                                    element.HeightMm,
+                                    element.FitMode,
+                                    Dpi,
+                                    cancellationToken);
 
-                                    builder.AddBitmap(
-                                        xDots,
-                                        yDots,
-                                        processed.WidthBytes,
-                                        processed.HeightDots,
-                                        mode: 0,
-                                        processed.BitmapData);
-                                }
-                                catch (Exception ex)
-                                {
-                                    logger.LogError(ex, "Failed to process logo {LogoFile} for TSC printing.", logoFileName);
-                                }
+                                builder.AddBitmap(
+                                    xDots,
+                                    yDots,
+                                    processed.WidthBytes,
+                                    processed.HeightDots,
+                                    mode: 0,
+                                    processed.BitmapData);
                             }
+                            catch (Exception ex)
+                            {
+                                logger.LogError(ex, "Failed to process logo {LogoFile} for TSC printing.", logoFileName);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        var logoMode = dynamicValues.TryGetValue("LogoMode", out var lm) ? lm : element.Content;
+                        if (!string.Equals(logoMode, "WithoutLogo", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var text = string.Equals(logoMode, "WithALUFO", StringComparison.OrdinalIgnoreCase) ||
+                                       string.Equals(element.Content, "WithALUFO", StringComparison.OrdinalIgnoreCase)
+                                ? "ALUFO"
+                                : "NAGREEKA";
+                            builder.AddText(xDots, yDots, "3", 0, 1, 1, text);
                         }
                     }
                     break;

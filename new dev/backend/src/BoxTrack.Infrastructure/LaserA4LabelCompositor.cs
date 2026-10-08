@@ -270,20 +270,22 @@ public sealed class LaserA4LabelCompositor(
         float w,
         float h)
     {
-        var logoMode = values.TryGetValue("LogoMode", out var lm) ? lm : "Nagreeka";
-        if (string.Equals(logoMode, "WithoutLogo", StringComparison.OrdinalIgnoreCase))
+        // 1. Check if there is an image file to draw (from Template element logo, content, or values)
+        string? logoFileName = el.Logo?.FileName;
+        if (string.IsNullOrWhiteSpace(logoFileName) && !string.IsNullOrWhiteSpace(el.Content))
         {
-            return;
+            var ext = Path.GetExtension(el.Content).ToLowerInvariant();
+            if (ext is ".png" or ".jpg" or ".jpeg" or ".bmp" or ".webp" or ".svg")
+            {
+                logoFileName = el.Content;
+            }
+        }
+        if (string.IsNullOrWhiteSpace(logoFileName) && values.TryGetValue("LogoFileName", out var lfn) && !string.IsNullOrWhiteSpace(lfn))
+        {
+            logoFileName = lfn;
         }
 
-        // Check if there is an image file to draw (from Custom mode, LogoFileName, or Template element logo)
-        var logoFileName = values.TryGetValue("LogoFileName", out var lfn) && !string.IsNullOrWhiteSpace(lfn)
-            ? lfn
-            : (el.Logo?.FileName ?? el.Content);
-
-        if (!string.IsNullOrWhiteSpace(logoFileName) &&
-            !string.Equals(logoMode, "Nagreeka", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(logoMode, "WithALUFO", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(logoFileName))
         {
             var cleanFileName = Path.GetFileName(logoFileName);
             var fullPath = Path.Combine(barcodeRoot, "logos", cleanFileName);
@@ -307,8 +309,16 @@ public sealed class LaserA4LabelCompositor(
             }
         }
 
+        // 2. Check textual mode if no image file
+        var logoMode = values.TryGetValue("LogoMode", out var lm) ? lm : el.Content;
+        if (string.Equals(logoMode, "WithoutLogo", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         // Textual logo: "WithALUFO"
-        if (string.Equals(logoMode, "WithALUFO", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(logoMode, "WithALUFO", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(el.Content, "WithALUFO", StringComparison.OrdinalIgnoreCase))
         {
             float ptTitle = Math.Max(9f, h * 0.42f * (72f / 100f));
             float ptSub = Math.Max(5f, h * 0.20f * (72f / 100f));

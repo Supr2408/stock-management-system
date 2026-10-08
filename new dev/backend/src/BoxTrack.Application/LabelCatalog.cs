@@ -2,7 +2,7 @@ namespace BoxTrack.Application;
 
 public sealed record LabelLogoRow(int Id, string Name, string FileName, string RelativePath, string ContentType);
 public sealed record LabelLogoUpload(string Name, string FileName, string ContentType, Stream Content);
-public sealed record LabelGenerationInput(int ItemId, DateOnly ManufactureDate, int Quantity, string LogoMode, int? LabelLogoId, int? TemplateId = null);
+public sealed record LabelGenerationInput(int ItemId, DateOnly ManufactureDate, int Quantity, string? LogoMode = null, int? LabelLogoId = null, int? TemplateId = null);
 public sealed record GeneratedLabelRow(long Id, int ItemId, int ItemCode, string ItemName, DateOnly ManufactureDate, int SerialNumber, string BarcodeValue, string LogoMode, int? LabelLogoId, string? LogoName, string FileName, string RelativePath);
 public sealed record LabelGenerationResult(int Generated, string FromBarcode, string ToBarcode, IReadOnlyList<GeneratedLabelRow> Labels, string? PrinterName = null, string? PrintStatus = null);
 
