@@ -1,0 +1,11 @@
+old guide/
+**/bin/
+**/obj/
+**/node_modules/
+.env
+.env.*
+!.env.example
+*.user
+*.suo
+.vscode/
+dist/
